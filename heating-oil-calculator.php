@@ -48,12 +48,14 @@ class Heating_Oil_Calculator {
         
         // Checkout modifications
         add_filter('woocommerce_checkout_fields', [$this, 'add_delivery_points_fields']);
+        add_action('woocommerce_after_checkout_billing_form', [$this, 'render_delivery_point_fields']);
         add_action('woocommerce_checkout_process', [$this, 'validate_checkout_fields']);
         add_action('woocommerce_checkout_update_order_meta', [$this, 'save_delivery_points_meta']);
         
         // Cart modifications
         add_filter('woocommerce_add_cart_item_data', [$this, 'add_calculator_data_to_cart'], 10, 3);
         add_filter('woocommerce_get_item_data', [$this, 'display_calculator_data_in_cart'], 10, 2);
+        add_filter('woocommerce_add_to_cart_redirect', [$this, 'redirect_to_checkout']);
         
         // Display calculator on product page
         add_action('woocommerce_before_add_to_cart_button', [$this, 'display_calculator']);
@@ -61,6 +63,25 @@ class Heating_Oil_Calculator {
         // Admin hooks
         add_action('add_meta_boxes', [$this, 'add_order_meta_box']);
         add_action('woocommerce_admin_order_data_after_billing_address', [$this, 'display_order_data_in_admin']);
+        
+        // Force add to cart if parameters are present
+        add_action('template_redirect', [$this, 'force_add_to_cart_from_url']);
+    }
+
+    public function force_add_to_cart_from_url() {
+        if (isset($_GET['add-to-cart']) && isset($_GET['hoc_liters']) && !is_admin()) {
+            $product_id = intval($_GET['add-to-cart']);
+            $quantity = isset($_GET['quantity']) ? intval($_GET['quantity']) : 1;
+            
+            // Optional: Clear cart first to ensure only one heating oil order
+            WC()->cart->empty_cart();
+            
+            WC()->cart->add_to_cart($product_id, $quantity);
+            
+            // Redirect to checkout to clean up the URL
+            wp_safe_redirect(wc_get_checkout_url());
+            exit;
+        }
     }
 
     public function enqueue_scripts() {
@@ -72,8 +93,17 @@ class Heating_Oil_Calculator {
         wp_localize_script('hoc-calculator', 'hoc_ajax', [
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('hoc_calculator_nonce'),
-            'product_id' => $product_id
+            'product_id' => $product_id,
+            'checkout_url' => wc_get_checkout_url(),
+            'home_url' => home_url('/')
         ]);
+    }
+
+    public function redirect_to_checkout($url) {
+        if (isset($_REQUEST['hoc_liters'])) {
+            return wc_get_checkout_url();
+        }
+        return $url;
     }
 
     public function display_calculator() {
@@ -264,29 +294,113 @@ class Heating_Oil_Calculator {
         }
     }
     
-    public function add_delivery_points_fields($fields) {
-        // Add delivery points information to checkout
-        $fields['order']['delivery_points_info'] = [
-            'type' => 'textarea',
-            'label' => __('Delivery Points Information', 'heating-oil-calculator'),
-            'placeholder' => __('Please provide details for each delivery point address', 'heating-oil-calculator'),
-            'required' => true,
-            'class' => ['form-row-wide'],
-            'priority' => 10
-        ];
+    public function render_delivery_point_fields($checkout) {
+        $delivery_points = 1;
+        if (WC()->cart) {
+            foreach (WC()->cart->get_cart() as $item) {
+                if (isset($item['heating_oil_data']['delivery_points'])) {
+                    $delivery_points = max($delivery_points, intval($item['heating_oil_data']['delivery_points']));
+                }
+            }
+        }
+
+        if ($delivery_points <= 1) return;
+
+        echo '<div id="extra_delivery_points" class="extra-delivery-points-wrapper">';
         
+        for ($i = 2; $i <= $delivery_points; $i++) {
+            $section = "delivery_point_{$i}";
+            echo '<div class="lieferanschrift-card dp-card-' . $i . '">';
+            
+            // Output header
+            echo '<h4 class="dp-header">' . sprintf(__('Lieferanschrift für Lieferstelle #%d', 'heating-oil-calculator'), $i) . '</h4>';
+
+            $fields = $checkout->get_checkout_fields($section);
+
+            foreach ($fields as $key => $field) {
+                if ($field['type'] !== 'heading') {
+                    woocommerce_form_field($key, $field, $checkout->get_value($key));
+                }
+            }
+            echo '</div>';
+        }
+        
+        echo '</div>';
+    }
+
+    public function add_delivery_points_fields($fields) {
+        $delivery_points = 1;
+        if (WC()->cart) {
+            foreach (WC()->cart->get_cart() as $item) {
+                if (isset($item['heating_oil_data']['delivery_points'])) {
+                    $delivery_points = max($delivery_points, intval($item['heating_oil_data']['delivery_points']));
+                }
+            }
+        }
+
+        if ($delivery_points <= 1) {
+            return $fields;
+        }
+
+        // Add fields for additional delivery points (Point 2 and up)
+        for ($i = 2; $i <= $delivery_points; $i++) {
+            $section = "delivery_point_{$i}";
+            
+            $fields[$section]["dp_{$i}_header"] = [
+                'type' => 'heading',
+                'label' => sprintf(__('Lieferanschrift für Lieferstelle #%d', 'heating-oil-calculator'), $i),
+                'class' => ['form-row-wide', 'dp-header-row'],
+                'priority' => 1
+            ];
+
+            $fields[$section]["dp_{$i}_first_name"] = [
+                'label' => __('Vorname', 'woocommerce'),
+                'required' => true,
+                'class' => ['form-row-first'],
+                'priority' => 10
+            ];
+
+            $fields[$section]["dp_{$i}_last_name"] = [
+                'label' => __('Nachname', 'woocommerce'),
+                'required' => true,
+                'class' => ['form-row-last'],
+                'priority' => 20
+            ];
+
+            $fields[$section]["dp_{$i}_address_1"] = [
+                'label' => __('Straße & Hausnummer', 'woocommerce'),
+                'required' => true,
+                'class' => ['form-row-wide'],
+                'priority' => 30
+            ];
+
+            $fields[$section]["dp_{$i}_postcode"] = [
+                'label' => __('Postleitzahl', 'woocommerce'),
+                'required' => true,
+                'class' => ['form-row-first'],
+                'priority' => 40
+            ];
+
+            $fields[$section]["dp_{$i}_city"] = [
+                'label' => __('Ort', 'woocommerce'),
+                'required' => true,
+                'class' => ['form-row-last'],
+                'priority' => 50
+            ];
+        }
+
         return $fields;
     }
-    
+
     public function validate_checkout_fields() {
-        if (isset($_POST['delivery_points_info']) && empty($_POST['delivery_points_info'])) {
-            wc_add_notice(__('Please provide delivery points information'), 'error');
-        }
+        // Validation is handled by the 'required' attribute in add_delivery_points_fields
     }
-    
+
     public function save_delivery_points_meta($order_id) {
-        if (isset($_POST['delivery_points_info'])) {
-            update_post_meta($order_id, '_delivery_points_info', sanitize_textarea_field($_POST['delivery_points_info']));
+        foreach ($_POST as $key => $value) {
+            if (strpos($key, 'dp_') === 0) {
+                update_post_meta($order_id, '_' . $key, sanitize_text_field($value));
+            }
         }
     }
     

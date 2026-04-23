@@ -103,22 +103,24 @@ jQuery(document).ready(function($) {
     function updateLoopItem($item, data, postalCode, liters, deliveryPoints) {
         // Update elements within the loop item
         $item.find('.priceStandard .elementor-heading-title').text('Gesamtpreis: €' + data.total_price);
-        $item.find('.live_price .elementor-heading-title').text(data.total_price);
         $item.find('.wc_price .woocommerce-Price-amount').html(data.price_per_100l + '<span class="woocommerce-Price-currencySymbol">€</span>');
         
-        // Update button links
+        // Update button links to add to cart and go directly to checkout
         const productId = getProductIdFromItem($item);
-        const baseUrl = window.location.pathname;
+        const checkoutUrl = hoc_ajax.checkout_url;
         const queryParams = $.param({
             'add-to-cart': productId,
+            'quantity': 1,
             'hoc_liters': liters,
             'hoc_delivery_points': deliveryPoints,
             'hoc_postal_code': postalCode,
             'hoc_total_price': data.total_price_raw
         });
         
-        $item.find('.elementor-button-link').each(function() {
-            $(this).attr('href', baseUrl + '?' + queryParams);
+        // Target .go_checkout as requested, falling back to .elementor-button-link
+        const $button =  $item.find('.go_checkout a.elementor-button-link');
+        $button.each(function() {
+            $(this).attr('href', checkoutUrl + '?' + queryParams);
         });
     }
 
