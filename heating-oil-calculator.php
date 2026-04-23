@@ -1,13 +1,13 @@
 <?php
 /**
- * Plugin Name: Heating Oil Calculator
- * Plugin URI: https://example.com/heating-oil-calculator
- * Description: A simple heating oil calculator plugin for WordPress.
+ * Plugin Name: Heating Oil Calculator for WooCommerce
+ * Plugin URI: https://your-site.com/
+ * Description: Dynamic heating oil pricing calculator with delivery points and multi-address checkout
  * Version: 1.0.0
- * Author: Your Name
+ * Author: Ftech
  * License: GPL v2 or later
- * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: heating-oil-calculator
+ * Requires Plugins: woocommerce
  */
 
 // Prevent direct access
@@ -15,6 +15,322 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Main plugin class or functions can be added here
+// Define plugin constants
+define('HOC_VERSION', '1.0.0');
+define('HOC_PLUGIN_PATH', plugin_dir_path(__FILE__));
+define('HOC_PLUGIN_URL', plugin_dir_url(__FILE__));
 
-?>
+// Main plugin class
+class Heating_Oil_Calculator {
+
+    private static $instance = null;
+
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    private function __construct() {
+        $this->init_hooks();
+    }
+
+    private function init_hooks() {
+        // Frontend hooks
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
+        add_action('woocommerce_before_calculate_totals', [$this, 'override_cart_price']);
+        add_action('woocommerce_checkout_create_order_line_item', [$this, 'save_calculator_data'], 10, 4);
+        
+        // AJAX handlers
+        add_action('wp_ajax_calculate_heating_oil_price', [$this, 'ajax_calculate_price']);
+        add_action('wp_ajax_nopriv_calculate_heating_oil_price', [$this, 'ajax_calculate_price']);
+        
+        // Checkout modifications
+        add_filter('woocommerce_checkout_fields', [$this, 'add_delivery_points_fields']);
+        add_action('woocommerce_checkout_process', [$this, 'validate_checkout_fields']);
+        add_action('woocommerce_checkout_update_order_meta', [$this, 'save_delivery_points_meta']);
+        
+        // Cart modifications
+        add_filter('woocommerce_add_cart_item_data', [$this, 'add_calculator_data_to_cart'], 10, 3);
+        add_filter('woocommerce_get_item_data', [$this, 'display_calculator_data_in_cart'], 10, 2);
+        
+        // Display calculator on product page
+        add_action('woocommerce_before_add_to_cart_button', [$this, 'display_calculator']);
+        
+        // Admin hooks
+        add_action('add_meta_boxes', [$this, 'add_order_meta_box']);
+        add_action('woocommerce_admin_order_data_after_billing_address', [$this, 'display_order_data_in_admin']);
+    }
+
+    public function enqueue_scripts() {
+        wp_enqueue_style('hoc-style', HOC_PLUGIN_URL . 'assets/css/style.css', [], HOC_VERSION);
+        wp_enqueue_script('hoc-calculator', HOC_PLUGIN_URL . 'assets/js/calculator.js', ['jquery'], HOC_VERSION, true);
+        
+        $product_id = is_product() ? get_the_ID() : 0;
+        
+        wp_localize_script('hoc-calculator', 'hoc_ajax', [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('hoc_calculator_nonce'),
+            'product_id' => $product_id
+        ]);
+    }
+
+    public function display_calculator() {
+        global $product;
+        
+        // Only show for specific product categories (adjust as needed)
+        $product_categories = wp_get_post_terms($product->get_id(), 'product_cat', ['fields' => 'slugs']);
+        
+        // Check if this is a heating oil product
+        $is_heating_oil = false;
+        foreach ($product_categories as $category) {
+            if (in_array($category, ['heating-oil', 'fuel-oil', 'heating-fuel'])) {
+                $is_heating_oil = true;
+                break;
+            }
+        }
+        
+        if (!$is_heating_oil && !has_shortcode(get_post()->post_content, 'heating_oil_calculator')) {
+            return;
+        }
+        
+        include HOC_PLUGIN_PATH . 'templates/calculator-form.php';
+    }
+
+    public function ajax_calculate_price() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'hoc_calculator_nonce')) {
+            wp_die('Security check failed');
+        }
+        
+        $liters = floatval($_POST['liters']);
+        $delivery_points = intval($_POST['delivery_points']);
+        $postal_code = sanitize_text_field($_POST['postal_code']);
+        $product_id = intval($_POST['product_id']);
+        
+        // Validation
+        $errors = [];
+        
+        if ($liters < 1500) {
+            $errors[] = 'Minimum order is 1500 liters';
+        }
+        
+        if ($liters > 6000) {
+            $errors[] = 'Maximum order is 6000 liters';
+        }
+        
+        if ($delivery_points < 1) {
+            $errors[] = 'Minimum 1 delivery point required';
+        }
+        
+        if ($delivery_points > 5) {
+            $errors[] = 'Maximum 5 delivery points allowed';
+        }
+        
+        if (!preg_match('/^\d{5}$/', $postal_code)) {
+            $errors[] = 'Please enter a valid 5-digit postal code';
+        }
+        
+        if (!empty($errors)) {
+            wp_send_json_error(['message' => implode(', ', $errors)]);
+            return;
+        }
+        
+        // Get product base price (you can modify this logic)
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(['message' => 'Invalid product ID: ' . $product_id]);
+            return;
+        }
+        $base_price_per_100l = $this->get_base_price($product_id, $postal_code);
+        
+        // Calculate prices
+        $price_per_100l = $base_price_per_100l;
+        $total_price = ($price_per_100l * $liters) / 100;
+        
+        // Add delivery points surcharge
+        $delivery_surcharge = $this->calculate_delivery_surcharge($delivery_points, $liters);
+        $total_price += $delivery_surcharge;
+        
+        // Calculate price per liter for WooCommerce
+        $price_per_liter = $total_price / $liters;
+        
+        wp_send_json_success([
+            'total_price' => number_format($total_price, 2, ',', '.'),
+            'total_price_raw' => $total_price,
+            'price_per_100l' => number_format($price_per_100l, 2, ',', '.'),
+            'price_per_liter' => number_format($price_per_liter, 2, ',', '.'),
+            'delivery_surcharge' => number_format($delivery_surcharge, 2, ',', '.'),
+            'liters' => $liters,
+            'delivery_points' => $delivery_points,
+            'product_id' => $product_id
+        ]);
+    }
+    
+    private function get_base_price($product_id, $postal_code) {
+        $product = wc_get_product($product_id);
+        if (!$product) return 104.00;
+
+        // Default prices - you can make these dynamic based on postal code
+        $prices = [
+            'standard' => 104.00,  // Price per 100L
+            'premium' => 106.00
+        ];
+        
+        $product_sku = $product->get_sku();
+        $product_name = $product->get_name();
+        
+        // Check if it's premium product
+        if (strpos(strtolower($product_sku), 'premium') !== false || strpos(strtolower($product_name), 'premium') !== false) {
+            return $prices['premium'];
+        }
+        
+        return $prices['standard'];
+    }
+    
+    private function calculate_delivery_surcharge($delivery_points, $liters) {
+        // Base delivery cost
+        $base_delivery = 45.99;
+        
+        // Additional cost per extra delivery point
+        $extra_point_cost = 35.00;
+        
+        if ($delivery_points <= 1) {
+            return 0;
+        }
+        
+        return $base_delivery + ($extra_point_cost * ($delivery_points - 1));
+    }
+    
+    public function add_calculator_data_to_cart($cart_item_data, $product_id, $variation_id) {
+        $liters = isset($_REQUEST['hoc_liters']) ? floatval($_REQUEST['hoc_liters']) : null;
+        $delivery_points = isset($_REQUEST['hoc_delivery_points']) ? intval($_REQUEST['hoc_delivery_points']) : null;
+        $postal_code = isset($_REQUEST['hoc_postal_code']) ? sanitize_text_field($_REQUEST['hoc_postal_code']) : null;
+        $total_price = isset($_REQUEST['hoc_total_price']) ? floatval($_REQUEST['hoc_total_price']) : null;
+
+        if ($liters && $delivery_points) {
+            $cart_item_data['heating_oil_data'] = [
+                'liters' => $liters,
+                'delivery_points' => $delivery_points,
+                'postal_code' => $postal_code,
+                'calculated_price' => $total_price
+            ];
+            
+            // Add unique key to prevent merging with other calculator items
+            $cart_item_data['unique_key'] = md5(microtime().rand());
+        }
+        
+        return $cart_item_data;
+    }
+    
+    public function override_cart_price($cart) {
+        if (is_admin() && !defined('DOING_AJAX')) {
+            return;
+        }
+        
+        foreach ($cart->get_cart() as $cart_item) {
+            if (isset($cart_item['heating_oil_data']['calculated_price'])) {
+                $cart_item['data']->set_price($cart_item['heating_oil_data']['calculated_price'] / $cart_item['quantity']);
+            }
+        }
+    }
+    
+    public function display_calculator_data_in_cart($item_data, $cart_item) {
+        if (isset($cart_item['heating_oil_data'])) {
+            $data = $cart_item['heating_oil_data'];
+            $item_data[] = [
+                'name' => __('Liters', 'heating-oil-calculator'),
+                'value' => $data['liters'] . ' L'
+            ];
+            $item_data[] = [
+                'name' => __('Delivery Points', 'heating-oil-calculator'),
+                'value' => $data['delivery_points']
+            ];
+            $item_data[] = [
+                'name' => __('Postal Code', 'heating-oil-calculator'),
+                'value' => $data['postal_code']
+            ];
+        }
+        
+        return $item_data;
+    }
+    
+    public function save_calculator_data($item, $cart_item_key, $values, $order) {
+        if (isset($values['heating_oil_data'])) {
+            $item->add_meta_data('_liters', $values['heating_oil_data']['liters']);
+            $item->add_meta_data('_delivery_points', $values['heating_oil_data']['delivery_points']);
+            $item->add_meta_data('_postal_code', $values['heating_oil_data']['postal_code']);
+        }
+    }
+    
+    public function add_delivery_points_fields($fields) {
+        // Add delivery points information to checkout
+        $fields['order']['delivery_points_info'] = [
+            'type' => 'textarea',
+            'label' => __('Delivery Points Information', 'heating-oil-calculator'),
+            'placeholder' => __('Please provide details for each delivery point address', 'heating-oil-calculator'),
+            'required' => true,
+            'class' => ['form-row-wide'],
+            'priority' => 10
+        ];
+        
+        return $fields;
+    }
+    
+    public function validate_checkout_fields() {
+        if (isset($_POST['delivery_points_info']) && empty($_POST['delivery_points_info'])) {
+            wc_add_notice(__('Please provide delivery points information'), 'error');
+        }
+    }
+    
+    public function save_delivery_points_meta($order_id) {
+        if (isset($_POST['delivery_points_info'])) {
+            update_post_meta($order_id, '_delivery_points_info', sanitize_textarea_field($_POST['delivery_points_info']));
+        }
+    }
+    
+    public function add_order_meta_box() {
+        add_meta_box(
+            'heating_oil_order_data',
+            __('Heating Oil Order Details', 'heating-oil-calculator'),
+            [$this, 'render_order_meta_box'],
+            'shop_order',
+            'side',
+            'default'
+        );
+    }
+    
+    public function render_order_meta_box($post) {
+        $order = wc_get_order($post->ID);
+        $delivery_info = get_post_meta($post->ID, '_delivery_points_info', true);
+        
+        echo '<div class="heating-oil-order-details">';
+        echo '<p><strong>' . __('Delivery Points Info:', 'heating-oil-calculator') . '</strong></p>';
+        echo '<p>' . nl2br(esc_html($delivery_info)) . '</p>';
+        echo '</div>';
+    }
+    
+    public function display_order_data_in_admin($order) {
+        $delivery_info = get_post_meta($order->get_id(), '_delivery_points_info', true);
+        if ($delivery_info) {
+            echo '<div class="heating-oil-admin-data">';
+            echo '<h3>' . __('Heating Oil Delivery Details', 'heating-oil-calculator') . '</h3>';
+            echo '<p><strong>' . __('Delivery Points Information:', 'heating-oil-calculator') . '</strong></p>';
+            echo '<pre>' . esc_html($delivery_info) . '</pre>';
+            echo '</div>';
+        }
+    }
+}
+
+// Initialize the plugin
+function heating_oil_calculator_init() {
+    if (class_exists('WooCommerce')) {
+        return Heating_Oil_Calculator::get_instance();
+    } else {
+        add_action('admin_notices', function() {
+            echo '<div class="error"><p>' . __('Heating Oil Calculator requires WooCommerce to be installed and active.', 'heating-oil-calculator') . '</p></div>';
+        });
+    }
+}
+add_action('plugins_loaded', 'heating_oil_calculator_init');
