@@ -47,10 +47,20 @@ class Heating_Oil_Calculator {
         add_action('wp_ajax_nopriv_calculate_heating_oil_price', [$this, 'ajax_calculate_price']);
         
         // Checkout modifications
-        add_filter('woocommerce_checkout_fields', [$this, 'add_delivery_points_fields']);
-        add_action('woocommerce_after_checkout_billing_form', [$this, 'render_delivery_point_fields']);
+        add_filter('woocommerce_checkout_fields', [$this, 'add_delivery_points_fields'], 999);
+        add_action('woocommerce_before_checkout_form', [$this, 'render_checkout_steps'], 5);
+        add_action('woocommerce_checkout_before_customer_details', [$this, 'start_checkout_grid']);
+        add_action('woocommerce_checkout_after_customer_details', [$this, 'middle_checkout_grid']);
+        add_action('woocommerce_checkout_after_order_review', [$this, 'end_checkout_grid'], 20);
+
+        // Billing form styling
+        add_action('woocommerce_before_checkout_billing_form', [$this, 'before_billing_form']);
+        add_action('woocommerce_after_checkout_billing_form', [$this, 'after_billing_form']);
+        
+        add_action('woocommerce_after_checkout_billing_form', [$this, 'render_delivery_point_fields'], 20);
         add_action('woocommerce_checkout_process', [$this, 'validate_checkout_fields']);
         add_action('woocommerce_checkout_update_order_meta', [$this, 'save_delivery_points_meta']);
+        add_filter('woocommerce_checkout_required_field_notice', [$this, 'clean_required_field_notices'], 10, 2);
         
         // Cart modifications
         add_filter('woocommerce_add_cart_item_data', [$this, 'add_calculator_data_to_cart'], 10, 3);
@@ -64,8 +74,129 @@ class Heating_Oil_Calculator {
         add_action('add_meta_boxes', [$this, 'add_order_meta_box']);
         add_action('woocommerce_admin_order_data_after_billing_address', [$this, 'display_order_data_in_admin']);
         
+        // Custom Checkout Overview Sidebar
+        add_action('woocommerce_checkout_order_review', [$this, 'render_checkout_sidebar_summary'], 5);
+        
         // Force add to cart if parameters are present
         add_action('template_redirect', [$this, 'force_add_to_cart_from_url']);
+    }
+
+    public function render_checkout_steps() {
+        ?>
+        <div class="hoc-checkout-steps">
+            <div class="steps-track">
+                <div class="step-item active">
+                    <div class="step-circle">1</div>
+                    <span class="step-label">Daten & Zahlung</span>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-item">
+                    <div class="step-circle">2</div>
+                    <span class="step-label">Liefertermin</span>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-item">
+                    <div class="step-circle">3</div>
+                    <span class="step-label">Bestätigung</span>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+
+    public function start_checkout_grid() {
+        echo '<div class="hoc-checkout-main-grid"><div class="hoc-row"><div class="hoc-col-left">';
+    }
+
+    public function middle_checkout_grid() {
+        echo '</div><div class="hoc-col-right">';
+    }
+
+    public function end_checkout_grid() {
+        echo '</div></div></div>';
+        echo '<div class="sticky-footer">
+                <div class="container d-flex justify-content-end">
+                    <button type="submit" class="btn btn-success custom-next-btn">Weiter zu: Liefertermin →</button>
+                </div>
+              </div>';
+    }
+
+    public function render_checkout_sidebar_summary() {
+        $cart = WC()->cart->get_cart();
+        $oil_data = null;
+        $product_name = '';
+
+        foreach ($cart as $item) {
+            if (isset($item['heating_oil_data'])) {
+                $oil_data = $item['heating_oil_data'];
+                $product_name = $item['data']->get_name();
+                break;
+            }
+        }
+
+        if (!$oil_data) return;
+
+        $liters = $oil_data['liters'];
+        $points = $oil_data['delivery_points'];
+        $total_brutto = $oil_data['calculated_price'];
+        
+        // Calculations based on snippet logic
+        $ggvs = 42.59;
+        $netto = ($total_brutto) / 1.19;
+        $mwst = $total_brutto - $netto;
+        $price_per_100l = ($total_brutto - $ggvs) / ($liters / 100);
+        
+        // SEPA Discount (example 5% if applicable)
+        $payment_method = WC()->session->get('chosen_payment_method');
+        $sepa_discount = ($payment_method === 'sepa') ? $total_brutto * 0.05 : 0;
+        $final_price = $total_brutto - $sepa_discount;
+
+        ?>
+        <div class="sidebar-card hoc-checkout-summary" id="sidebar">
+            <h5 class="fw-bold mb-3"><?php _e('Übersicht', 'heating-oil-calculator'); ?></h5>
+            <div id="sidebar-main">
+                <div class="sidebar-row"><strong><?php echo esc_html($product_name); ?></strong></div>
+                <div class="sidebar-row"><span>Menge:</span><span><?php echo $liters; ?> L</span></div>
+                <div class="sidebar-row"><span>Lieferstellen:</span><span><?php echo $points; ?> <?php echo ($points > 1) ? 'Lieferstellen' : 'Lieferstelle'; ?></span></div>
+                <div class="sidebar-row"><span>Preis/100L:</span><span><?php echo number_format($price_per_100l, 2, ',', '.'); ?> €</span></div>
+            </div>
+            
+            <div id="sidebar-delivery">
+                <div class="sidebar-row"><strong>Versand:</strong> Standardlieferung</div>
+                <div class="sidebar-row"><span>Versandkosten:</span><span>Kostenlos</span></div>
+            </div>
+
+            <div id="sidebar-payment">
+                <div class="sidebar-row"><strong>Zahlung:</strong> <?php echo ($payment_method === 'sepa') ? 'SEPA-Überweisung' : 'Vorkasse'; ?></div>
+            </div>
+
+            <div class="sidebar-divider"></div>
+            
+            <div class="price-box">
+                <div id="sidebar-final-price" class="sidebar-row fw-bold fs-5">
+                    <span>Gesamtbetrag:</span>
+                    <span><?php echo number_format($final_price, 2, ',', '.'); ?> €</span>
+                </div>
+                
+                <button type="button" id="price-details-toggle" class="price-details-toggle">
+                    Preisdetails anzeigen 
+                    <svg class="price-toggle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                </button>
+                
+                <div id="price-details-panel" style="display:none;">
+                    <div class="sidebar-divider"></div>
+                    <div class="sidebar-row"><span>Netto:</span><span><?php echo number_format($netto, 2, ',', '.'); ?> €</span></div>
+                    <div class="sidebar-row"><span>MWSt:</span><span><?php echo number_format($mwst, 2, ',', '.'); ?> €</span></div>
+                    <div class="sidebar-row"><span>GGVS-Umlage:</span><span><?php echo number_format($ggvs, 2, ',', '.'); ?> €</span></div>
+                    <div class="sidebar-divider"></div>
+                    <div class="sidebar-row"><span>Brutto:</span><span><?php echo number_format($total_brutto, 2, ',', '.'); ?> €</span></div>
+                    <?php if ($sepa_discount > 0): ?>
+                        <div class="sidebar-row"><span>Skonto bei Vorkasse (-5%):</span><span style="color:#18c341;">-<?php echo number_format($sepa_discount, 2, ',', '.'); ?> €</span></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php
     }
 
     public function force_add_to_cart_from_url() {
@@ -317,14 +448,36 @@ class Heating_Oil_Calculator {
 
             $fields = $checkout->get_checkout_fields($section);
 
-            foreach ($fields as $key => $field) {
-                if ($field['type'] !== 'heading') {
-                    woocommerce_form_field($key, $field, $checkout->get_value($key));
+            if (is_array($fields)) {
+                foreach ($fields as $key => $field) {
+                    $type = isset($field['type']) ? $field['type'] : 'text';
+                    if ($type !== 'heading') {
+                        woocommerce_form_field($key, $field, $checkout->get_value($key));
+                    }
                 }
             }
             echo '</div>';
         }
         
+        echo '</div>';
+    }
+
+    public function before_billing_form() {
+        $delivery_points = 1;
+        if (WC()->cart) {
+            foreach (WC()->cart->get_cart() as $item) {
+                if (isset($item['heating_oil_data']['delivery_points'])) {
+                    $delivery_points = max($delivery_points, intval($item['heating_oil_data']['delivery_points']));
+                }
+            }
+        }
+        $header = ($delivery_points > 1) ? __('Lieferanschrift für Lieferstelle #1', 'heating-oil-calculator') : __('Lieferanschrift für alle Lieferstellen', 'heating-oil-calculator');
+        
+        echo '<div class="lieferanschrift-card billing-card">';
+        echo '<h4 class="dp-header">' . $header . '</h4>';
+    }
+
+    public function after_billing_form() {
         echo '</div>';
     }
 
@@ -338,6 +491,28 @@ class Heating_Oil_Calculator {
             }
         }
 
+        // Rename Billing Fields to match Reference
+        $fields['billing']['billing_salutation'] = [
+            'type' => 'select',
+            'label' => __('Anrede', 'heating-oil-calculator'),
+            'options' => [
+                '' => __('Bitte auswählen', 'heating-oil-calculator'),
+                'Herr' => 'Herr',
+                'Frau' => 'Frau',
+                'Divers' => 'Divers'
+            ],
+            'required' => true,
+            'class' => ['form-row-wide'],
+            'priority' => 5
+        ];
+
+        $fields['billing']['billing_first_name']['label'] = __('Vorname', 'woocommerce');
+        $fields['billing']['billing_last_name']['label'] = __('Nachname', 'woocommerce');
+        $fields['billing']['billing_address_1']['label'] = __('Straße & Hausnummer', 'woocommerce');
+        $fields['billing']['billing_city']['label'] = __('Ort', 'woocommerce');
+        $fields['billing']['billing_postcode']['label'] = __('Postleitzahl', 'woocommerce');
+        $fields['billing']['billing_country']['label'] = __('Land', 'woocommerce');
+
         if ($delivery_points <= 1) {
             return $fields;
         }
@@ -346,14 +521,22 @@ class Heating_Oil_Calculator {
         for ($i = 2; $i <= $delivery_points; $i++) {
             $section = "delivery_point_{$i}";
             
-            $fields[$section]["dp_{$i}_header"] = [
-                'type' => 'heading',
-                'label' => sprintf(__('Lieferanschrift für Lieferstelle #%d', 'heating-oil-calculator'), $i),
-                'class' => ['form-row-wide', 'dp-header-row'],
-                'priority' => 1
+            $fields[$section]["dp_{$i}_salutation"] = [
+                'type' => 'select',
+                'label' => __('Anrede', 'heating-oil-calculator'),
+                'options' => [
+                    '' => __('Bitte auswählen', 'heating-oil-calculator'),
+                    'Herr' => 'Herr',
+                    'Frau' => 'Frau',
+                    'Divers' => 'Divers'
+                ],
+                'required' => true,
+                'class' => ['form-row-wide'],
+                'priority' => 5
             ];
 
             $fields[$section]["dp_{$i}_first_name"] = [
+                'type' => 'text',
                 'label' => __('Vorname', 'woocommerce'),
                 'required' => true,
                 'class' => ['form-row-first'],
@@ -361,6 +544,7 @@ class Heating_Oil_Calculator {
             ];
 
             $fields[$section]["dp_{$i}_last_name"] = [
+                'type' => 'text',
                 'label' => __('Nachname', 'woocommerce'),
                 'required' => true,
                 'class' => ['form-row-last'],
@@ -368,6 +552,7 @@ class Heating_Oil_Calculator {
             ];
 
             $fields[$section]["dp_{$i}_address_1"] = [
+                'type' => 'text',
                 'label' => __('Straße & Hausnummer', 'woocommerce'),
                 'required' => true,
                 'class' => ['form-row-wide'],
@@ -375,6 +560,7 @@ class Heating_Oil_Calculator {
             ];
 
             $fields[$section]["dp_{$i}_postcode"] = [
+                'type' => 'text',
                 'label' => __('Postleitzahl', 'woocommerce'),
                 'required' => true,
                 'class' => ['form-row-first'],
@@ -382,6 +568,7 @@ class Heating_Oil_Calculator {
             ];
 
             $fields[$section]["dp_{$i}_city"] = [
+                'type' => 'text',
                 'label' => __('Ort', 'woocommerce'),
                 'required' => true,
                 'class' => ['form-row-last'],
@@ -392,11 +579,18 @@ class Heating_Oil_Calculator {
         return $fields;
     }
 
+    public function clean_required_field_notices($notice, $field_label) {
+        return sprintf(__('%s ist ein Pflichtfeld.', 'heating-oil-calculator'), $field_label);
+    }
+
     public function validate_checkout_fields() {
-        // Validation is handled by the 'required' attribute in add_delivery_points_fields
+        // Custom sections validation is already handled by WC
     }
 
     public function save_delivery_points_meta($order_id) {
+        if (isset($_POST['billing_salutation'])) {
+            update_post_meta($order_id, '_billing_salutation', sanitize_text_field($_POST['billing_salutation']));
+        }
         foreach ($_POST as $key => $value) {
             if (strpos($key, 'dp_') === 0) {
                 update_post_meta($order_id, '_' . $key, sanitize_text_field($value));

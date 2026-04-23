@@ -163,4 +163,17 @@ jQuery(document).ready(function($) {
 
     // Initial calculation if values are present
     calculatePrices();
+
+    // Price Details Toggle on Checkout
+    $(document).on('click', '#price-details-toggle', function() {
+        const $panel = $('#price-details-panel');
+        $(this).toggleClass('active');
+        $panel.slideToggle();
+        
+        const isVisible = $panel.is(':visible');
+        $(this).html(
+            (isVisible ? 'Preisdetails verbergen' : 'Preisdetails anzeigen') + 
+            ' <svg class="price-toggle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
+        );
+    });
 });

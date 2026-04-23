@@ -1,42 +1,135 @@
-.lieferanschrift-card {
+/* Steps Progress Bar */
+.hoc-checkout-steps {
+    padding: 20px 0 40px;
+    max-width: 800px;
+    margin: 0 auto;
+}
+.steps-track {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+.step-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #eaecec;
+    color: #6B7280;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+.step-item.active .step-circle {
+    background: #FDC835;
+    color: #1F2023;
+}
+.step-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #6B7280;
+}
+.step-item.active .step-label {
+    color: #1F2023;
+}
+.step-line {
+    height: 2px;
+    background: #eaecec;
+    flex: 1;
+    margin-top: -24px;
+}
+
+/* 2-Column Grid Layout */
+.hoc-checkout-main-grid {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 15px;
+}
+.hoc-row {
+    display: flex;
+    /* flex-wrap: wrap; */
+    margin: 0 -15px;
+}
+.hoc-col-left {
+    flex: 100%;
+    padding: 0 15px;
+}
+.hoc-col-right {
+    display: none;;
+}
+
+/* Sidebar & Sticky */
+.sidebar-card {
     border: 1px solid #eaecec;
     border-radius: 16px;
     padding: 24px;
     margin-bottom: 24px;
     background-color: #fff;
-    position: relative;
+    position: sticky;
+    top: 20px;
 }
 
-.dp-header {
-    font-weight: 900;
-    font-size: 20px;
-    margin-bottom: 20px;
+/* Sidebar Rows */
+.sidebar-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
     color: #1F2023;
+    font-size: 15px;
+}
+.sidebar-divider {
+    height: 1px;
+    background-color: #eaecec;
+    margin: 16px 0;
 }
 
-.extra-delivery-points-wrapper {
-    margin-top: 30px;
+/* Sticky Footer */
+.sticky-footer {
+    display: flex;
+    justify-content: center;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #fff;
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+    padding: 15px 0;
+    z-index: 1000;
 }
-
-.dp-header-row {
+.custom-next-btn {
+    background-color: #fef8e1 !important;
+    border: 1px solid #fdc835 !important;
+    padding: 12px 30px !important;
+    font-weight: 700 !important;
+    border-radius: 25px !important;
+    color: #5f6b7a !important;
+}
+.wpmc-nav-wrapper{
     display: none !important;
 }
-
-/* Match WooCommerce form-row layout */
-.lieferanschrift-card .form-row {
-    margin-bottom: 15px;
+.e-checkout__container {
+    display: flex !important;
+}
+.place-order {
+    opacity: 0;
+    pointer-events: none;
 }
 
-.lieferanschrift-card label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 5px;
-}
-
-.lieferanschrift-card input, 
-.lieferanschrift-card select {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+/* Mobile Adjustments */
+@media (max-width: 991px) {
+    .hoc-col-left, .hoc-col-right {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+    .sidebar-card {
+        position: static;
+    }
 }
