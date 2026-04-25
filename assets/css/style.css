@@ -125,6 +125,18 @@
 .shop_table{
     display:none;
 }
+button#price-details-toggle {
+    background-color:#00000000;
+    color:#000000;
+    border:none;
+    padding:0;
+}
+button#price-details-toggle:hover {
+    background-color:#00000000;
+}
+button#price-details-toggle:active {
+    background-color:#00000000;
+}
 
 /* Mobile Adjustments */
 @media (max-width: 991px) {

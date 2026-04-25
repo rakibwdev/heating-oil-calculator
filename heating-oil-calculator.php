@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: Heating Oil Calculator for WooCommerce
- * Plugin URI: https://your-site.com/
+ * Plugin URI: https://forazitech.com/
  * Description: Dynamic heating oil pricing calculator with delivery points and multi-address checkout
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Ftech
  * License: GPL v2 or later
  * Text Domain: heating-oil-calculator
@@ -39,7 +39,7 @@ class Heating_Oil_Calculator {
     private function init_hooks() {
         // Frontend hooks
         add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
-        add_action('woocommerce_before_calculate_totals', [$this, 'override_cart_price']);
+        add_action('woocommerce_before_calculate_totals', [$this, 'override_cart_price'], 99);
         add_action('woocommerce_checkout_create_order_line_item', [$this, 'save_calculator_data'], 10, 4);
         
         // AJAX handlers
@@ -204,12 +204,9 @@ class Heating_Oil_Calculator {
             $product_id = intval($_GET['add-to-cart']);
             $quantity = isset($_GET['quantity']) ? intval($_GET['quantity']) : 1;
             
-            // Optional: Clear cart first to ensure only one heating oil order
-            WC()->cart->empty_cart();
-            
             WC()->cart->add_to_cart($product_id, $quantity);
             
-            // Redirect to checkout to clean up the URL
+            // Redirect to checkout
             wp_safe_redirect(wc_get_checkout_url());
             exit;
         }
@@ -298,21 +295,16 @@ class Heating_Oil_Calculator {
             return;
         }
         
-        // Get product base price (you can modify this logic)
+        // Get product base price
         $product = wc_get_product($product_id);
         if (!$product) {
             wp_send_json_error(['message' => 'Invalid product ID: ' . $product_id]);
             return;
         }
-        $base_price_per_100l = $this->get_base_price($product_id, $postal_code);
+        $price_per_100l = $this->get_base_price($product_id, $postal_code);
         
-        // Calculate prices
-        $price_per_100l = $base_price_per_100l;
-        $total_price = ($price_per_100l * $liters) / 100;
-        
-        // Add delivery points surcharge
-        $delivery_surcharge = $this->calculate_delivery_surcharge($delivery_points, $liters);
-        $total_price += $delivery_surcharge;
+        // SIMPLE CALCULATION: (Price * Liters * Delivery Points) / 100
+        $total_price = ($price_per_100l * $liters * $delivery_points) / 100;
         
         // Calculate price per liter for WooCommerce
         $price_per_liter = $total_price / $liters;
@@ -322,7 +314,7 @@ class Heating_Oil_Calculator {
             'total_price_raw' => $total_price,
             'price_per_100l' => number_format($price_per_100l, 2, ',', '.'),
             'price_per_liter' => number_format($price_per_liter, 2, ',', '.'),
-            'delivery_surcharge' => number_format($delivery_surcharge, 2, ',', '.'),
+            'delivery_surcharge' => "0,00",
             'liters' => $liters,
             'delivery_points' => $delivery_points,
             'product_id' => $product_id
@@ -333,9 +325,9 @@ class Heating_Oil_Calculator {
         $product = wc_get_product($product_id);
         if (!$product) return 104.00;
 
-        // Default prices - you can make these dynamic based on postal code
+        // Default prices
         $prices = [
-            'standard' => 104.00,  // Price per 100L
+            'standard' => 104.00,
             'premium' => 106.00
         ];
         
@@ -351,26 +343,19 @@ class Heating_Oil_Calculator {
     }
     
     private function calculate_delivery_surcharge($delivery_points, $liters) {
-        // Base delivery cost
-        $base_delivery = 45.99;
-        
-        // Additional cost per extra delivery point
-        $extra_point_cost = 35.00;
-        
-        if ($delivery_points <= 1) {
-            return 0;
-        }
-        
-        return $base_delivery + ($extra_point_cost * ($delivery_points - 1));
+        return 0;
     }
     
     public function add_calculator_data_to_cart($cart_item_data, $product_id, $variation_id) {
         $liters = isset($_REQUEST['hoc_liters']) ? floatval($_REQUEST['hoc_liters']) : null;
         $delivery_points = isset($_REQUEST['hoc_delivery_points']) ? intval($_REQUEST['hoc_delivery_points']) : null;
         $postal_code = isset($_REQUEST['hoc_postal_code']) ? sanitize_text_field($_REQUEST['hoc_postal_code']) : null;
-        $total_price = isset($_REQUEST['hoc_total_price']) ? floatval($_REQUEST['hoc_total_price']) : null;
-
+        
         if ($liters && $delivery_points) {
+            // Recalculate total price server-side for security and accuracy
+            $price_per_100l = $this->get_base_price($product_id, $postal_code);
+            $total_price = ($price_per_100l * $liters * $delivery_points) / 100;
+
             $cart_item_data['heating_oil_data'] = [
                 'liters' => $liters,
                 'delivery_points' => $delivery_points,

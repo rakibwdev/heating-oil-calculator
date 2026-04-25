@@ -2,12 +2,7 @@ jQuery(document).ready(function($) {
     // Selectors
     const selectors = {
         standard: {
-            postalCode: '#postal_code',
-            liters: '#liters',
-            deliveryPoints: '#delivery_points',
-            totalPrice: '#total_price',
-            pricePer100l: '#price_per_100l',
-            deliverySurcharge: '#delivery_surcharge'
+            postalCode: '#postal_code', liters: '#liters', deliveryPoints: '#delivery_points'
         },
         elementor: {
             postalCode: '#form-field-zip',
@@ -25,37 +20,20 @@ jQuery(document).ready(function($) {
     }
 
     function getInputValues() {
-        let postalCode, liters, deliveryPoints;
-
-        if ($(selectors.elementor.postalCode).length) {
-            postalCode = $(selectors.elementor.postalCode).val();
-            liters = $(selectors.elementor.liters).val();
-            deliveryPoints = $(selectors.elementor.deliveryPoints).val();
-        } else {
-            postalCode = $(selectors.standard.postalCode).val();
-            liters = $(selectors.standard.liters).val();
-            deliveryPoints = $(selectors.standard.deliveryPoints).val();
-        }
-
+        let postalCode = $(selectors.elementor.postalCode).val() || $(selectors.standard.postalCode).val() || "";
+        let liters = $(selectors.elementor.liters).val() || $(selectors.standard.liters).val() || "";
+        let deliveryPoints = $(selectors.elementor.deliveryPoints).val() || $(selectors.standard.deliveryPoints).val() || "1";
         return { postalCode, liters, deliveryPoints };
     }
 
     function validateInputs(postalCode, liters) {
         const $errorMsg = $('.error_messhi');
         const $btn = $(selectors.checkoutBtn);
-        
         let errors = [];
         
-        // Zip validation (must be 5 digits)
-        if (!/^\d{5}$/.test(postalCode)) {
-            errors.push(' Die Postleitzahl muss 5 Ziffern haben.');
-        }
-        
-        // Liters validation (1500 - 6000)
+        if (!/^\d{5}$/.test(postalCode)) errors.push('Bitte geben Sie eine gültige 5-stellige Postleitzahl ein.');
         const litersNum = parseFloat(liters);
-        if (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000) {
-            errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
-        }
+        if (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000) errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
         
         if (errors.length > 0) {
             $errorMsg.html(errors.join('<br>')).show();
@@ -70,17 +48,12 @@ jQuery(document).ready(function($) {
 
     function calculatePrices() {
         const { postalCode, liters, deliveryPoints } = getInputValues();
+        validateInputs(postalCode, liters);
 
-        // Always validate first
-        const isValid = validateInputs(postalCode, liters);
-        
-        if (!isValid || !deliveryPoints) {
-            return;
-        }
+        // We calculate if zip is 5 digits, even if liters are out of range (for live feedback)
+        if (!/^\d{5}$/.test(postalCode) || !liters) return;
 
-        // Check loop vs single product
         const loopItems = $('[data-elementor-type="loop-item"]');
-
         if (loopItems.length > 0) {
             loopItems.each(function() {
                 const $item = $(this);
@@ -101,16 +74,15 @@ jQuery(document).ready(function($) {
     function getProductIdFromItem($item) {
         const classes = ($item.attr('class') || '').split(/\s+/);
         for (let cls of classes) {
-            if (cls.startsWith('post-')) return cls.split('-')[1];
-            if (cls.startsWith('e-loop-item-')) return cls.split('-')[2];
+            let match = cls.match(/(?:post|e-loop-item)-(\d+)/);
+            if (match) return match[1];
         }
         return null;
     }
 
     function performCalculation(productId, postalCode, liters, deliveryPoints, callback) {
         $.ajax({
-            url: hoc_ajax.ajax_url,
-            type: 'POST',
+            url: hoc_ajax.ajax_url, type: 'POST',
             data: {
                 action: 'calculate_heating_oil_price',
                 nonce: hoc_ajax.nonce,
@@ -120,39 +92,30 @@ jQuery(document).ready(function($) {
                 product_id: productId
             },
             success: function(response) {
-                if (response.success && callback) {
-                    callback(response.data);
-                }
+                if (response.success && callback) callback(response.data);
             }
         });
     }
 
     function updateLoopItem($item, data, postalCode, liters, deliveryPoints) {
-        $item.find('.priceStandard .elementor-heading-title').text('Gesamtpreis: €' + data.total_price);
-        $item.find('.live_price .elementor-heading-title').text(data.total_price);
-        $item.find('.wc_price .woocommerce-Price-amount').html(data.price_per_100l + '<span class="woocommerce-Price-currencySymbol">€</span>');
+        $item.find('.priceStandard .elementor-heading-title, .priceStandard h2').text('Gesamtpreis: €' + data.total_price);
         
         const productId = getProductIdFromItem($item);
         const homeUrl = hoc_ajax.home_url;
         const queryParams = $.param({
-            'add-to-cart': productId,
-            'quantity': 1,
-            'hoc_liters': liters,
-            'hoc_delivery_points': deliveryPoints,
-            'hoc_postal_code': postalCode,
-            'hoc_total_price': data.total_price_raw
+            'add-to-cart': productId, 'quantity': 1,
+            'hoc_liters': liters, 'hoc_delivery_points': deliveryPoints,
+            'hoc_postal_code': postalCode, 'hoc_total_price': data.total_price_raw
         });
         
         const $button = $item.find('.go_checkout').length ? $item.find('.go_checkout') : $item.find('.elementor-button-link');
-        $button.each(function() {
-            $(this).attr('href', homeUrl + '?' + queryParams);
-        });
+        $button.attr('href', homeUrl + '?' + queryParams);
     }
 
     function updateSingleProduct(data, postalCode) {
-        $(selectors.standard.totalPrice).text('€' + data.total_price);
-        $(selectors.standard.pricePer100l).text('€' + data.price_per_100l);
-        $(selectors.standard.deliverySurcharge).text('€' + data.delivery_surcharge);
+        $('#total_price').text('€' + data.total_price);
+        $('#price_per_100l').text('€' + data.price_per_100l);
+        $('#delivery_surcharge').text('€' + data.delivery_surcharge);
         
         $('#hoc_liters').val(data.liters);
         $('#hoc_delivery_points').val(data.delivery_points);
@@ -161,18 +124,39 @@ jQuery(document).ready(function($) {
         $('.error-messages').hide();
     }
 
-    const allInputs = [
-        selectors.standard.postalCode, selectors.standard.liters, selectors.standard.deliveryPoints,
-        selectors.elementor.postalCode, selectors.elementor.liters, selectors.elementor.deliveryPoints
-    ].join(', ');
+    // Event Listeners
+    const inputSelectors = '#form-field-zip, #form-field-liters, #postal_code, #liters';
+    const selectSelectors = '#form-field-del_points, #delivery_points';
 
-    let debounceTimer;
-    $(document).on('input change', allInputs, function() {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(calculatePrices, 500);
+    $(document).on('click', selectors.checkoutBtn, function(e) {
+        e.preventDefault();
+        
+        const $btn = $(this);
+        const $item = $btn.closest('[data-elementor-type="loop-item"]');
+        const productId = getProductIdFromItem($item) || hoc_ajax.product_id;
+        const { postalCode, liters, deliveryPoints } = getInputValues();
+        
+        if (!validateInputs(postalCode, liters)) return false;
+
+        const homeUrl = hoc_ajax.home_url;
+        const queryParams = $.param({
+            'add-to-cart': productId,
+            'quantity': 1,
+            'hoc_liters': liters,
+            'hoc_delivery_points': deliveryPoints,
+            'hoc_postal_code': postalCode
+        });
+
+        window.location.href = homeUrl + '?' + queryParams;
     });
 
-    $(document).on('click', '#calculate_price', function() {
+    let debounceTimer;
+    $(document).on('input', inputSelectors, function() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(calculatePrices, 250);
+    });
+
+    $(document).on('change', selectSelectors, function() {
         calculatePrices();
     });
 
@@ -191,6 +175,5 @@ jQuery(document).ready(function($) {
         $(this).html((isVisible ? 'Preisdetails verbergen' : 'Preisdetails anzeigen') + ' <svg class="price-toggle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>');
     });
 
-    // Run validation on load
-    calculatePrices();
+    calculatePrices(); // Initial load
 });
