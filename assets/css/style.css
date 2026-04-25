@@ -122,6 +122,9 @@
     opacity: 0;
     pointer-events: none;
 }
+.shop_table{
+    display:none;
+}
 
 /* Mobile Adjustments */
 @media (max-width: 991px) {
