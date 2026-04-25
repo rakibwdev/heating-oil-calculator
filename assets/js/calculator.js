@@ -1,5 +1,5 @@
 jQuery(document).ready(function($) {
-    // Selectors for both standard form and Elementor form
+    // Selectors
     const selectors = {
         standard: {
             postalCode: '#postal_code',
@@ -13,11 +13,17 @@ jQuery(document).ready(function($) {
             postalCode: '#form-field-zip',
             liters: '#form-field-liters',
             deliveryPoints: '#form-field-del_points',
-            form: '.elementor-form'
-        }
+            form: '.elementor-form',
+            buttons: '.e-form__buttons'
+        },
+        checkoutBtn: '.go_checkout, .elementor-button-link'
     };
 
-    // Helper to get input values from whichever form is present
+    // Ensure error message element exists
+    if ($('.error_messhi').length === 0) {
+        $(selectors.elementor.buttons).after('<h2 class="error_messhi" style="color:red; font-size:16px; margin-top:10px; display:none;"></h2>');
+    }
+
     function getInputValues() {
         let postalCode, liters, deliveryPoints;
 
@@ -34,19 +40,48 @@ jQuery(document).ready(function($) {
         return { postalCode, liters, deliveryPoints };
     }
 
-    // Main calculation function
+    function validateInputs(postalCode, liters) {
+        const $errorMsg = $('.error_messhi');
+        const $btn = $(selectors.checkoutBtn);
+        
+        let errors = [];
+        
+        // Zip validation (must be 5 digits)
+        if (!/^\d{5}$/.test(postalCode)) {
+            errors.push(' Die Postleitzahl muss 5 Ziffern haben.');
+        }
+        
+        // Liters validation (1500 - 6000)
+        const litersNum = parseFloat(liters);
+        if (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000) {
+            errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
+        }
+        
+        if (errors.length > 0) {
+            $errorMsg.html(errors.join('<br>')).show();
+            $btn.css({'opacity': '0.5', 'pointer-events': 'none'}).attr('disabled', 'disabled');
+            return false;
+        } else {
+            $errorMsg.hide();
+            $btn.css({'opacity': '1', 'pointer-events': 'auto'}).removeAttr('disabled');
+            return true;
+        }
+    }
+
     function calculatePrices() {
         const { postalCode, liters, deliveryPoints } = getInputValues();
 
-        if (!postalCode || !liters || !deliveryPoints) {
+        // Always validate first
+        const isValid = validateInputs(postalCode, liters);
+        
+        if (!isValid || !deliveryPoints) {
             return;
         }
 
-        // Check if we are in a loop or single product page
+        // Check loop vs single product
         const loopItems = $('[data-elementor-type="loop-item"]');
 
         if (loopItems.length > 0) {
-            // Update each item in the loop
             loopItems.each(function() {
                 const $item = $(this);
                 const productId = getProductIdFromItem($item);
@@ -57,7 +92,6 @@ jQuery(document).ready(function($) {
                 }
             });
         } else if (hoc_ajax.product_id > 0) {
-            // Single product page
             performCalculation(hoc_ajax.product_id, postalCode, liters, deliveryPoints, function(data) {
                 updateSingleProduct(data, postalCode);
             });
@@ -65,17 +99,10 @@ jQuery(document).ready(function($) {
     }
 
     function getProductIdFromItem($item) {
-        // Try to get product ID from classes like post-123 or e-loop-item-123
         const classes = ($item.attr('class') || '').split(/\s+/);
         for (let cls of classes) {
-            if (cls.startsWith('post-')) {
-                const id = cls.split('-')[1];
-                if (!isNaN(id)) return id;
-            }
-            if (cls.startsWith('e-loop-item-')) {
-                const id = cls.split('-')[2];
-                if (!isNaN(id)) return id;
-            }
+            if (cls.startsWith('post-')) return cls.split('-')[1];
+            if (cls.startsWith('e-loop-item-')) return cls.split('-')[2];
         }
         return null;
     }
@@ -101,13 +128,12 @@ jQuery(document).ready(function($) {
     }
 
     function updateLoopItem($item, data, postalCode, liters, deliveryPoints) {
-        // Update elements within the loop item
         $item.find('.priceStandard .elementor-heading-title').text('Gesamtpreis: €' + data.total_price);
+        $item.find('.live_price .elementor-heading-title').text(data.total_price);
         $item.find('.wc_price .woocommerce-Price-amount').html(data.price_per_100l + '<span class="woocommerce-Price-currencySymbol">€</span>');
         
-        // Update button links to add to cart and go directly to checkout
         const productId = getProductIdFromItem($item);
-        const checkoutUrl = hoc_ajax.checkout_url;
+        const homeUrl = hoc_ajax.home_url;
         const queryParams = $.param({
             'add-to-cart': productId,
             'quantity': 1,
@@ -117,10 +143,9 @@ jQuery(document).ready(function($) {
             'hoc_total_price': data.total_price_raw
         });
         
-        // Target .go_checkout as requested, falling back to .elementor-button-link
-        const $button =  $item.find('.go_checkout a.elementor-button-link');
+        const $button = $item.find('.go_checkout').length ? $item.find('.go_checkout') : $item.find('.elementor-button-link');
         $button.each(function() {
-            $(this).attr('href', checkoutUrl + '?' + queryParams);
+            $(this).attr('href', homeUrl + '?' + queryParams);
         });
     }
 
@@ -133,11 +158,9 @@ jQuery(document).ready(function($) {
         $('#hoc_delivery_points').val(data.delivery_points);
         $('#hoc_postal_code').val(postalCode);
         $('#hoc_total_price').val(data.total_price_raw);
-        
         $('.error-messages').hide();
     }
 
-    // Listeners
     const allInputs = [
         selectors.standard.postalCode, selectors.standard.liters, selectors.standard.deliveryPoints,
         selectors.elementor.postalCode, selectors.elementor.liters, selectors.elementor.deliveryPoints
@@ -153,7 +176,6 @@ jQuery(document).ready(function($) {
         calculatePrices();
     });
 
-    // Prevent Elementor form submission if it's just for calculation
     $(document).on('submit', selectors.elementor.form, function(e) {
         if (!$(this).attr('action') || $(this).attr('action') === window.location.href) {
             e.preventDefault();
@@ -161,19 +183,14 @@ jQuery(document).ready(function($) {
         }
     });
 
-    // Initial calculation if values are present
-    calculatePrices();
-
-    // Price Details Toggle on Checkout
     $(document).on('click', '#price-details-toggle', function() {
         const $panel = $('#price-details-panel');
         $(this).toggleClass('active');
         $panel.slideToggle();
-        
         const isVisible = $panel.is(':visible');
-        $(this).html(
-            (isVisible ? 'Preisdetails verbergen' : 'Preisdetails anzeigen') + 
-            ' <svg class="price-toggle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
-        );
+        $(this).html((isVisible ? 'Preisdetails verbergen' : 'Preisdetails anzeigen') + ' <svg class="price-toggle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>');
     });
+
+    // Run validation on load
+    calculatePrices();
 });
