@@ -27,8 +27,10 @@ jQuery(document).ready(function($) {
     }
 
     function validateInputs(postalCode, liters) {
-        const $errorMsg = $('.error_messhi');
-        const $btn = $(selectors.checkoutBtn);
+        const $container = $('.calc-container');
+
+const $errorMsg = $container.find('.error_messhi');
+const $btn = $container.find(selectors.checkoutBtn);
         let errors = [];
         
         if (!/^\d{5}$/.test(postalCode)) errors.push('Bitte geben Sie eine gültige 5-stellige Postleitzahl ein.');
