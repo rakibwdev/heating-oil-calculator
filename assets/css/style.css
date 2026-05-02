@@ -213,8 +213,8 @@ Hide duplicate fields in the main billing list
     pointer-events: none;
 }
 /* .shop_table{
-    display:none; */
-}
+    display:none;
+} */
 /* Mobile Adjustments */
 @media (max-width: 991px) {
     .hoc-col-left, .hoc-col-right {

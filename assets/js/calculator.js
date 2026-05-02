@@ -48,10 +48,12 @@ jQuery(document).ready(function($) {
         const step1Elements = '.billing-card, .hoc-step-1-extra, .woocommerce-shipping-fields';
         $('.hoc-step-container').hide();
         $(step1Elements).hide();
+        
+        // Custom: Hide standard checkout tables until confirmation
+        $('.woocommerce-checkout-review-order-table, .shop_table').hide();
 
         // Ensure parent container is visible but Step 1 fields are hidden in other steps
         $('.woocommerce-billing-fields').show();
-        // $('.woocommerce-billing-fields__field-wrapper').hide();
 
         if (step === 1) {
             $(step1Elements).show();
@@ -69,6 +71,7 @@ jQuery(document).ready(function($) {
         } 
         else if (step === 3) {
             $('#hoc-checkout-step-3').show();
+            $('.woocommerce-checkout-review-order-table, .shop_table').show(); // Show on final step
             $('.next-step-btn').hide();
             $('.prev-step-btn').attr('data-prev', '2').show();
             $('.custom-submit-btn').show();
@@ -194,6 +197,8 @@ jQuery(document).ready(function($) {
         }, function(res) {
             if (res.success) {
                 $('#sidebar').replaceWith(res.data.html);
+                // Trigger WooCommerce to update real totals
+                $(document.body).trigger('update_checkout');
             }
         });
         

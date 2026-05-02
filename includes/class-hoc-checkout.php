@@ -19,6 +19,20 @@ class HOC_Checkout {
         // Display custom fields in order details
         add_filter('woocommerce_get_order_item_totals', [$this, 'add_order_item_totals'], 10, 3);
         add_action('woocommerce_admin_order_data_after_billing_address', [$this, 'display_order_data_in_admin'], 10, 1);
+
+        // PERSISTENT SHIPPING FEE
+        add_action('woocommerce_cart_calculate_fees', [$this, 'add_shipping_fee']);
+    }
+
+    public function add_shipping_fee($cart) {
+        if (is_admin() && !defined('DOING_AJAX')) return;
+        
+        // Try to get from POST first (during checkout update), then session
+        $shipping_type = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : WC()->session->get('hoc_shipping_type');
+        
+        if ($shipping_type === 'express') {
+            $cart->add_fee(__('Expresslieferung Aufschlag', 'heating-oil-calculator'), 45.99);
+        }
     }
 
     public function add_order_item_totals($total_rows, $order, $tax_display) {
@@ -121,6 +135,18 @@ class HOC_Checkout {
 
     public function render_steps_indicator() {
         ?>
+        <style>
+            /* Hide order table ONLY on the checkout wizard page */
+            .woocommerce-checkout .hoc-checkout-main-grid ~ .woocommerce-checkout-review-order-table,
+            .woocommerce-checkout .hoc-checkout-main-grid ~ .shop_table,
+            .woocommerce-checkout .shop_table.woocommerce-checkout-review-order-table {
+                display: none !important;
+            }
+            /* Ensure it shows on the order received page */
+            .woocommerce-order-received .shop_table {
+                display: table !important;
+            }
+        </style>
         <div class="hoc-checkout-steps">
             <div class="steps-track">
                 <div class="step-item active"><div class="step-circle">1</div><span class="step-label">Daten & Zahlung</span></div>
@@ -156,7 +182,7 @@ class HOC_Checkout {
 
         // Determine shipping
         if ($shipping_method === null) {
-            $shipping_method = WC()->session->get('hoc_shipping_type') ?: 'standard';
+            $shipping_method = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : (WC()->session->get('hoc_shipping_type') ?: 'standard');
         }
 
         $liters = $oil_data['liters'];
