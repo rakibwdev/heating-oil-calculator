@@ -5,6 +5,25 @@ class HOC_AJAX {
     public function __construct() {
         add_action('wp_ajax_calculate_heating_oil_price', [$this, 'calculate_price']);
         add_action('wp_ajax_nopriv_calculate_heating_oil_price', [$this, 'calculate_price']);
+
+        add_action('wp_ajax_update_checkout_sidebar', [$this, 'update_sidebar']);
+        add_action('wp_ajax_nopriv_update_checkout_sidebar', [$this, 'update_sidebar']);
+    }
+
+    public function update_sidebar() {
+        if (isset($_POST['nonce']) && !empty($_POST['nonce'])) {
+            wp_verify_nonce($_POST['nonce'], 'hoc_calculator_nonce');
+        }
+
+        $shipping_method = isset($_POST['shipping_method']) ? sanitize_text_field($_POST['shipping_method']) : 'standard';
+        WC()->session->set('hoc_shipping_type', $shipping_method);
+
+        $checkout = new HOC_Checkout();
+        ob_start();
+        $checkout->render_checkout_sidebar_summary($shipping_method);
+        $html = ob_get_clean();
+
+        wp_send_json_success(['html' => $html]);
     }
 
     public function calculate_price() {

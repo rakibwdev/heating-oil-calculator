@@ -49,8 +49,13 @@ jQuery(document).ready(function($) {
         $('.hoc-step-container').hide();
         $(step1Elements).hide();
 
+        // Ensure parent container is visible but Step 1 fields are hidden in other steps
+        $('.woocommerce-billing-fields').show();
+        // $('.woocommerce-billing-fields__field-wrapper').hide();
+
         if (step === 1) {
             $(step1Elements).show();
+            $('.woocommerce-billing-fields__field-wrapper').show();
             $('.next-step-btn').text('Weiter zu: Liefertermin →').attr('data-next', '2').show();
             $('.prev-step-btn').hide();
             $('.custom-submit-btn').hide();
@@ -178,6 +183,23 @@ jQuery(document).ready(function($) {
     $(document).on('input', selectors.zip + ',' + selectors.liters, function() {
         clearTimeout(window.hocTimer);
         window.hocTimer = setTimeout(updateComparisonPrices, 300);
+    });
+
+    $(document).on('change', selectors.billingShipping, function() {
+        const method = $(this).val();
+        $.post(hoc_ajax.ajax_url, {
+            action: 'update_checkout_sidebar',
+            nonce: hoc_ajax.nonce,
+            shipping_method: method
+        }, function(res) {
+            if (res.success) {
+                $('#sidebar').replaceWith(res.data.html);
+            }
+        });
+        
+        if (currentStep === 2) {
+            generateDeliveryDates();
+        }
     });
 
     $(document).on('change', selectors.points, updateComparisonPrices);
