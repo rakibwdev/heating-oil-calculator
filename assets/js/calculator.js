@@ -1,181 +1,189 @@
 jQuery(document).ready(function($) {
-    // Selectors
+    if (typeof hoc_ajax === 'undefined') return;
+
+    // --- CONFIG ---
     const selectors = {
-        standard: {
-            postalCode: '#postal_code', liters: '#liters', deliveryPoints: '#delivery_points'
-        },
-        elementor: {
-            postalCode: '#form-field-zip',
-            liters: '#form-field-liters',
-            deliveryPoints: '#form-field-del_points',
-            form: '.elementor-form',
-            buttons: '.e-form__buttons'
-        },
-        checkoutBtn: '.go_checkout, .elementor-button-link'
+        zip: '#form-field-zip',
+        liters: '#form-field-liters',
+        points: '#form-field-del_points',
+        formButtons: '.e-form__buttons',
+        checkoutBtn: '.go_checkout, .elementor-button-link',
+        billingDate: '#billing_delivery_date_custom',
+        billingDateField: '#billing_delivery_date_custom_field',
+        billingPhoneCoord: '#billing_delivery_phone_coord',
+        billingPhoneCoordField: '#billing_delivery_phone_coord_field',
+        billingShipping: 'input[name="billing_shipping_type_custom"]',
+        calcContainer: '.calc-container'
     };
 
-    // Ensure error message element exists
-    if ($('.error_messhi').length === 0) {
-        $(selectors.elementor.buttons).after('<h2 class="error_messhi" style="color:red; font-size:16px; margin-top:10px; display:none;"></h2>');
-    }
+    let currentStep = 1;
 
-    function getInputValues() {
-        let postalCode = $(selectors.elementor.postalCode).val() || $(selectors.standard.postalCode).val() || "";
-        let liters = $(selectors.elementor.liters).val() || $(selectors.standard.liters).val() || "";
-        let deliveryPoints = $(selectors.elementor.deliveryPoints).val() || $(selectors.standard.deliveryPoints).val() || "1";
-        return { postalCode, liters, deliveryPoints };
-    }
-
+    // --- UTILITIES ---
     function validateInputs(postalCode, liters) {
-        const $container = $('.calc-container');
-
-const $errorMsg = $container.find('.error_messhi');
-const $btn = $container.find(selectors.checkoutBtn);
+        if ($(selectors.calcContainer).length === 0) return true;
+        const $btn = $(selectors.checkoutBtn);
         let errors = [];
         
-        if (!/^\d{5}$/.test(postalCode)) errors.push('Bitte geben Sie eine gültige 5-stellige Postleitzahl ein.');
+        if ($('.error_messhi').length === 0 && $(selectors.formButtons).length) {
+            $(selectors.formButtons).after('<h2 class="error_messhi" style="color:red; font-size:16px; margin-top:10px; display:none;"></h2>');
+        }
+
+        if (postalCode && !/^\d{5}$/.test(postalCode)) errors.push('Bitte geben Sie eine gültige 5-stellige Postleitzahl ein.');
         const litersNum = parseFloat(liters);
-        if (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000) errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
+        if (liters && (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000)) errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
         
         if (errors.length > 0) {
-            $errorMsg.html(errors.join('<br>')).show();
+            $('.error_messhi').html(errors.join('<br>')).show();
             $btn.css({'opacity': '0.5', 'pointer-events': 'none'}).attr('disabled', 'disabled');
             return false;
         } else {
-            $errorMsg.hide();
+            $('.error_messhi').hide();
             $btn.css({'opacity': '1', 'pointer-events': 'auto'}).removeAttr('disabled');
             return true;
         }
     }
 
-    function calculatePrices() {
-        const { postalCode, liters, deliveryPoints } = getInputValues();
-        validateInputs(postalCode, liters);
+    // --- NAVIGATION ---
+    function goToStep(step) {
+        const step1Elements = '.billing-card, .hoc-step-1-extra, .woocommerce-shipping-fields';
+        $('.hoc-step-container').hide();
+        $(step1Elements).hide();
 
-        // We calculate if zip is 5 digits, even if liters are out of range (for live feedback)
-        if (!/^\d{5}$/.test(postalCode) || !liters) return;
-
-        const loopItems = $('[data-elementor-type="loop-item"]');
-        if (loopItems.length > 0) {
-            loopItems.each(function() {
-                const $item = $(this);
-                const productId = getProductIdFromItem($item);
-                if (productId) {
-                    performCalculation(productId, postalCode, liters, deliveryPoints, function(data) {
-                        updateLoopItem($item, data, postalCode, liters, deliveryPoints);
-                    });
-                }
-            });
-        } else if (hoc_ajax.product_id > 0) {
-            performCalculation(hoc_ajax.product_id, postalCode, liters, deliveryPoints, function(data) {
-                updateSingleProduct(data, postalCode);
-            });
+        if (step === 1) {
+            $(step1Elements).show();
+            $('.next-step-btn').text('Weiter zu: Liefertermin →').attr('data-next', '2').show();
+            $('.prev-step-btn').hide();
+            $('.custom-submit-btn').hide();
+        } 
+        else if (step === 2) {
+            $('#hoc-checkout-step-2').show();
+            $('.next-step-btn').text('Weiter zu: Bestellung prüfen →').attr('data-next', '3').show();
+            $('.prev-step-btn').attr('data-prev', '1').show();
+            $('.custom-submit-btn').hide();
+            generateDeliveryDates();
+        } 
+        else if (step === 3) {
+            $('#hoc-checkout-step-3').show();
+            $('.next-step-btn').hide();
+            $('.prev-step-btn').attr('data-prev', '2').show();
+            $('.custom-submit-btn').show();
         }
+
+        updateProgressBar(step);
+        currentStep = step;
+        window.scrollTo(0, 0);
     }
 
-    function getProductIdFromItem($item) {
-        const classes = ($item.attr('class') || '').split(/\s+/);
-        for (let cls of classes) {
-            let match = cls.match(/(?:post|e-loop-item)-(\d+)/);
-            if (match) return match[1];
-        }
-        return null;
-    }
-
-    function performCalculation(productId, postalCode, liters, deliveryPoints, callback) {
-        $.ajax({
-            url: hoc_ajax.ajax_url, type: 'POST',
-            data: {
-                action: 'calculate_heating_oil_price',
-                nonce: hoc_ajax.nonce,
-                postal_code: postalCode,
-                liters: liters,
-                delivery_points: deliveryPoints,
-                product_id: productId
-            },
-            success: function(response) {
-                if (response.success && callback) callback(response.data);
+    function updateProgressBar(step) {
+        $('.hoc-checkout-steps .step-item').removeClass('active completed');
+        $('.hoc-checkout-steps .step-line').removeClass('completed');
+        $('.hoc-checkout-steps .step-item').each(function(i) {
+            const s = i + 1;
+            if (s < step) {
+                $(this).addClass('completed').find('.step-circle').html('<i class="fas fa-check"></i>');
+                $('.hoc-checkout-steps .step-line').eq(i).addClass('completed');
+            } else if (s === step) {
+                $(this).addClass('active').find('.step-circle').text(s);
+            } else {
+                $(this).find('.step-circle').text(s);
             }
         });
     }
 
-    function updateLoopItem($item, data, postalCode, liters, deliveryPoints) {
-        $item.find('.priceStandard .elementor-heading-title, .priceStandard h2').text('Gesamtpreis: €' + data.total_price);
+    function generateDeliveryDates() {
+        const $select = $(selectors.billingDate);
+        if (!$select.length) return;
+
+        const isExpress = $(selectors.billingShipping + ':checked').val() === 'express';
+        const startOffset = isExpress ? 7 : 14;
         
-        const productId = getProductIdFromItem($item);
-        const homeUrl = hoc_ajax.home_url;
-        const queryParams = $.param({
-            'add-to-cart': productId, 'quantity': 1,
-            'hoc_liters': liters, 'hoc_delivery_points': deliveryPoints,
-            'hoc_postal_code': postalCode, 'hoc_total_price': data.total_price_raw
-        });
+        const currentVal = $select.val();
+        $select.empty().append('<option value="">Bitte auswählen</option>');
         
-        const $button = $item.find('.go_checkout').length ? $item.find('.go_checkout') : $item.find('.elementor-button-link');
-        $button.attr('href', homeUrl + '?' + queryParams);
-    }
+        let date = new Date();
+        date.setDate(date.getDate() + startOffset);
 
-    function updateSingleProduct(data, postalCode) {
-        $('#total_price').text('€' + data.total_price);
-        $('#price_per_100l').text('€' + data.price_per_100l);
-        $('#delivery_surcharge').text('€' + data.delivery_surcharge);
-        
-        $('#hoc_liters').val(data.liters);
-        $('#hoc_delivery_points').val(data.delivery_points);
-        $('#hoc_postal_code').val(postalCode);
-        $('#hoc_total_price').val(data.total_price_raw);
-        $('.error-messages').hide();
-    }
+        let count = 0;
+        const days = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+        const months = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
-    // Event Listeners
-    const inputSelectors = '#form-field-zip, #form-field-liters, #postal_code, #liters';
-    const selectSelectors = '#form-field-del_points, #delivery_points';
-
-    $(document).on('click', selectors.checkoutBtn, function(e) {
-        e.preventDefault();
-        
-        const $btn = $(this);
-        const $item = $btn.closest('[data-elementor-type="loop-item"]');
-        const productId = getProductIdFromItem($item) || hoc_ajax.product_id;
-        const { postalCode, liters, deliveryPoints } = getInputValues();
-        
-        if (!validateInputs(postalCode, liters)) return false;
-
-        const homeUrl = hoc_ajax.home_url;
-        const queryParams = $.param({
-            'add-to-cart': productId,
-            'quantity': 1,
-            'hoc_liters': liters,
-            'hoc_delivery_points': deliveryPoints,
-            'hoc_postal_code': postalCode
-        });
-
-        window.location.href = homeUrl + '?' + queryParams;
-    });
-
-    let debounceTimer;
-    $(document).on('input', inputSelectors, function() {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(calculatePrices, 250);
-    });
-
-    $(document).on('change', selectSelectors, function() {
-        calculatePrices();
-    });
-
-    $(document).on('submit', selectors.elementor.form, function(e) {
-        if (!$(this).attr('action') || $(this).attr('action') === window.location.href) {
-            e.preventDefault();
-            calculatePrices();
+        while (count < 14) {
+            if (date.getDay() !== 0) {
+                const label = `${days[date.getDay()]}, ${date.getDate()}. ${months[date.getMonth()]}`;
+                const val = date.toISOString().split('T')[0];
+                $select.append(`<option value="${val} 08:00-12:00">${label} (08:00 - 12:00)</option>`);
+                $select.append(`<option value="${val} 15:00-18:00">${label} (15:00 - 18:00)</option>`);
+                count++;
+            }
+            date.setDate(date.getDate() + 1);
         }
+        if (currentVal) $select.val(currentVal);
+    }
+
+    // --- CALCULATION LOGIC ---
+    function updateComparisonPrices() {
+        const zip = $(selectors.zip).val();
+        const liters = $(selectors.liters).val();
+        const points = $(selectors.points).val() || "1";
+        if (!validateInputs(zip, liters)) return;
+        if (!/^\d{5}$/.test(zip) || !liters) return;
+
+        $('[data-elementor-type="loop-item"]').each(function() {
+            const $item = $(this);
+            const productId = $item.attr('class').match(/(?:post|e-loop-item)-(\d+)/)?.[1];
+            if (!productId) return;
+            $.post(hoc_ajax.ajax_url, {
+                action: 'calculate_heating_oil_price',
+                nonce: hoc_ajax.nonce,
+                postal_code: zip, liters: liters, delivery_points: points, product_id: productId
+            }, function(res) {
+                if (res.success) {
+                    $item.find('.priceStandard .elementor-heading-title, .priceStandard h2').text('Gesamtpreis: €' + res.data.total_price);
+                    const url = hoc_ajax.home_url + '?' + $.param({ 'hoc-buy': productId, 'hoc_liters': liters, 'hoc_delivery_points': points, 'hoc_postal_code': zip });
+                    $item.find('.go_checkout, .elementor-button-link').attr('href', url);
+                }
+            });
+        });
+    }
+
+    // --- LISTENERS ---
+    $(document).on('click', '.next-step-btn', function(e) { 
+        e.preventDefault(); 
+        const next = parseInt($(this).attr('data-next'));
+        if (currentStep === 1) {
+            let valid = true;
+            $('.billing-card input[required], .billing-card select[required]').each(function() {
+                if (!$(this).val()) { $(this).css('border-color', 'red'); valid = false; }
+                else { $(this).css('border-color', ''); }
+            });
+            if (!valid) { alert('Bitte füllen Sie alle Pflichtfelder aus.'); return false; }
+        }
+        if (currentStep === 2 && next === 3) {
+            if (!$(selectors.billingDate).val() && !$(selectors.billingPhoneCoord).is(':checked')) {
+                // alert('Bitte wählen Sie einen Liefertermin aus oder aktivieren Sie die telefonische Abstimmung.');
+                return false;
+            }
+        }
+        goToStep(next); 
     });
 
-    $(document).on('click', '#price-details-toggle', function() {
-        const $panel = $('#price-details-panel');
-        $(this).toggleClass('active');
-        $panel.slideToggle();
-        const isVisible = $panel.is(':visible');
-        $(this).html((isVisible ? 'Preisdetails verbergen' : 'Preisdetails anzeigen') + ' <svg class="price-toggle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>');
+    $(document).on('click', '.prev-step-btn', function(e) { e.preventDefault(); goToStep(parseInt($(this).attr('data-prev'))); });
+    $(document).on('click', '.custom-submit-btn', function(e) { e.preventDefault(); $('#place_order').click(); });
+
+    $(document).on('change', selectors.billingPhoneCoord, function() {
+        $(selectors.billingDate).prop('disabled', $(this).is(':checked'));
+        if ($(this).is(':checked')) $(selectors.billingDate).val('');
     });
 
-    calculatePrices(); // Initial load
+    $(document).on('input', selectors.zip + ',' + selectors.liters, function() {
+        clearTimeout(window.hocTimer);
+        window.hocTimer = setTimeout(updateComparisonPrices, 300);
+    });
+
+    $(document).on('change', selectors.points, updateComparisonPrices);
+    $(document).on('click', '#price-details-toggle', function() { $('#price-details-panel').slideToggle(); $(this).toggleClass('active'); });
+
+    // INIT
+    if ($('.hoc-checkout-main-grid').length) goToStep(1);
+    else updateComparisonPrices();
 });

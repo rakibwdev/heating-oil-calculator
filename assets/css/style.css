@@ -1,3 +1,49 @@
+Hide duplicate fields in the main billing list
+.hoc-hidden-field {
+    display: none !important;
+}
+
+#billing_delivery_date_custom_field, 
+#billing_delivery_phone_coord_field {
+    margin-bottom: 20px;
+}
+
+/* Wizard Step containers */
+.hoc-step-container {
+    margin-bottom: 30px;
+}
+
+/* Shipping Card Styling (matches esy-oil.com) */
+.hoc-shipping-selection-wrapper .form-row {
+    display: block;
+    border: 1px solid #eaecec;
+    border-radius: 12px;
+    padding: 15px 20px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fff;
+    position: relative;
+}
+.hoc-shipping-selection-wrapper .form-row:hover {
+    border-color: #FDC835;
+}
+.hoc-shipping-selection-wrapper .form-row.active-card {
+    border-color: #FDC835;
+    background-color: #fffef5;
+}
+.hoc-shipping-selection-wrapper label {
+    font-weight: 700 !important;
+    display: inline-block !important;
+    margin-left: 10px !important;
+    cursor: pointer;
+}
+.hoc-shipping-selection-wrapper input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    vertical-align: middle;
+}
+
 /* Steps Progress Bar */
 .hoc-checkout-steps {
     padding: 20px 0 40px;
@@ -15,6 +61,7 @@
     align-items: center;
     gap: 8px;
     flex: 1;
+    cursor: default;
 }
 .step-circle {
     width: 32px;
@@ -31,6 +78,10 @@
     background: #FDC835;
     color: #1F2023;
 }
+.step-item.completed .step-circle {
+    background: #198754;
+    color: #fff;
+}
 .step-label {
     font-size: 14px;
     font-weight: 600;
@@ -45,6 +96,9 @@
     flex: 1;
     margin-top: -24px;
 }
+.step-line.completed {
+    background: #198754;
+}
 
 /* 2-Column Grid Layout */
 .hoc-checkout-main-grid {
@@ -55,15 +109,63 @@
 }
 .hoc-row {
     display: flex;
-    /* flex-wrap: wrap; */
+    flex-wrap: wrap;
     margin: 0 -15px;
 }
 .hoc-col-left {
-    flex: 100%;
+    flex: 0 0 58.333333%;
+    max-width: 58.333333%;
     padding: 0 15px;
 }
 .hoc-col-right {
-    display: none;;
+    flex: 0 0 41.666667%;
+    max-width: 41.666667%;
+    padding: 0 15px;
+}
+
+/* Cards */
+.lieferanschrift-card {
+    border: 1px solid #eaecec;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    background-color: #fff;
+    position: relative;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+}
+
+.dp-header {
+    font-weight: 900;
+    font-size: 20px;
+    margin-bottom: 20px;
+    color: #1F2023;
+}
+
+/* Sticky Footer */
+.sticky-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #fff;
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+    padding: 15px 0;
+    z-index: 1000;
+}
+.btn-success {
+    background-color: #198754 !important;
+    border: none;
+    padding: 12px 30px;
+    font-weight: 700;
+    border-radius: 8px;
+    color: #fff !important;
+}
+.btn-secondary {
+    background-color: #6c757d !important;
+    border: none;
+    padding: 12px 25px;
+    border-radius: 8px;
+    color: #fff !important;
 }
 
 /* Sidebar & Sticky */
@@ -77,7 +179,6 @@
     top: 20px;
 }
 
-/* Sidebar Rows */
 .sidebar-row {
     display: flex;
     justify-content: space-between;
@@ -89,53 +190,6 @@
     height: 1px;
     background-color: #eaecec;
     margin: 16px 0;
-}
-
-/* Sticky Footer */
-.sticky-footer {
-    display: flex;
-    justify-content: center;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    background: #fff;
-    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
-    padding: 15px 0;
-    z-index: 1000;
-}
-.custom-next-btn {
-    background-color: #fef8e1 !important;
-    border: 1px solid #fdc835 !important;
-    padding: 12px 30px !important;
-    font-weight: 700 !important;
-    border-radius: 25px !important;
-    color: #5f6b7a !important;
-}
-.wpmc-nav-wrapper{
-    display: none !important;
-}
-.e-checkout__container {
-    display: flex !important;
-}
-.place-order {
-    opacity: 0;
-    pointer-events: none;
-}
-.shop_table{
-    display:none;
-}
-button#price-details-toggle {
-    background-color:#00000000;
-    color:#000000;
-    border:none;
-    padding:0;
-}
-button#price-details-toggle:hover {
-    background-color:#00000000;
-}
-button#price-details-toggle:active {
-    background-color:#00000000;
 }
 
 /* Mobile Adjustments */
