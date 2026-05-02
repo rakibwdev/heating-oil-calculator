@@ -20,24 +20,30 @@ jQuery(document).ready(function($) {
 
     // --- UTILITIES ---
     function validateInputs(postalCode, liters) {
-        if ($(selectors.calcContainer).length === 0) return true;
-        const $btn = $(selectors.checkoutBtn);
+        const $container = $(selectors.calcContainer);
+        if ($container.length === 0) return true;
+        
+        const $btn = $container.find(selectors.checkoutBtn);
         let errors = [];
         
-        if ($('.error_messhi').length === 0 && $(selectors.formButtons).length) {
-            $(selectors.formButtons).after('<h2 class="error_messhi" style="color:red; font-size:16px; margin-top:10px; display:none;"></h2>');
+        const $formButtons = $container.find(selectors.formButtons);
+        
+        if ($container.find('.error_messhi').length === 0 && $formButtons.length) {
+            $formButtons.after('<h2 class="error_messhi" style="color:red; font-size:16px; margin-top:10px; display:none;"></h2>');
         }
+
+        const $errorMsg = $container.find('.error_messhi');
 
         if (postalCode && !/^\d{5}$/.test(postalCode)) errors.push('Bitte geben Sie eine gültige 5-stellige Postleitzahl ein.');
         const litersNum = parseFloat(liters);
         if (liters && (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000)) errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
         
         if (errors.length > 0) {
-            $('.error_messhi').html(errors.join('<br>')).show();
+            $errorMsg.html(errors.join('<br>')).show();
             $btn.css({'opacity': '0.5', 'pointer-events': 'none'}).attr('disabled', 'disabled');
             return false;
         } else {
-            $('.error_messhi').hide();
+            $errorMsg.hide();
             $btn.css({'opacity': '1', 'pointer-events': 'auto'}).removeAttr('disabled');
             return true;
         }
