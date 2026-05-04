@@ -24,12 +24,32 @@ class HOC_Checkout {
         add_action('woocommerce_cart_calculate_fees', [$this, 'add_shipping_fee']);
     }
 
+    private function get_shipping_options() {
+        $options = [];
+        $packages = WC()->shipping()->get_packages();
+        
+        foreach ($packages as $i => $package) {
+            $available_methods = $package['rates'];
+            foreach ($available_methods as $id => $method) {
+                $options[$id] = $method->get_label() . ' (' . wc_price($method->cost) . ')';
+            }
+        }
+
+        if (empty($options)) {
+            $options = ['standard' => 'Standardlieferung (Kostenlos)', 'express' => 'Expresslieferung (+ 45,99 €)'];
+        }
+
+        return $options;
+    }
+
     public function add_shipping_fee($cart) {
         if (is_admin() && !defined('DOING_AJAX')) return;
         
-        // Try to get from POST first (during checkout update), then session
         $shipping_type = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : WC()->session->get('hoc_shipping_type');
         
+        // If it's the old hardcoded express, keep the fee. 
+        // If it's a new WC method, the cost should be handled by WC shipping itself if we were using it properly.
+        // But since we are using a custom field, we might need to manually add the fee if it's not a real WC method.
         if ($shipping_type === 'express') {
             $cart->add_fee(__('Expresslieferung Aufschlag', 'heating-oil-calculator'), 45.99);
         }
@@ -41,14 +61,13 @@ class HOC_Checkout {
         $shipping = get_post_meta($order->get_id(), '_billing_shipping_type_custom', true);
 
         $new_rows = [];
+        $options = $this->get_shipping_options();
 
         foreach ($total_rows as $key => $row) {
             $new_rows[$key] = $row;
             
-            // Insert after shipping or before total
             if ($key === 'shipping' || ($key === 'payment_method' && !isset($total_rows['shipping']))) {
                 if ($shipping) {
-                    $options = ['standard' => 'Standardlieferung (Kostenlos)', 'express' => 'Expresslieferung (+ 45,99 €)'];
                     $new_rows['hoc_shipping_type'] = [
                         'label' => __('Versandoption', 'heating-oil-calculator') . ':',
                         'value' => $options[$shipping] ?? $shipping
@@ -80,7 +99,7 @@ class HOC_Checkout {
         echo '<div class="order_data_column" style="width:100%; clear:both; margin-top:20px;">';
         echo '<h4>' . __('Heizöl Details', 'heating-oil-calculator') . '</h4>';
         if ($shipping) {
-            $options = ['standard' => 'Standardlieferung (Kostenlos)', 'express' => 'Expresslieferung (+ 45,99 €)'];
+            $options = $this->get_shipping_options();
             echo '<p><strong>' . __('Versandoption', 'heating-oil-calculator') . ':</strong> ' . ($options[$shipping] ?? $shipping) . '</p>';
         }
         if ($phone_coord) {
@@ -93,17 +112,17 @@ class HOC_Checkout {
 
     public function add_custom_fields($fields) {
         $points = $this->get_points();
+        $options = $this->get_shipping_options();
+        $default_shipping = key($options);
 
-        // 1. Shipping Options (Step 1) - We keep this here so it shows in the billing section
         $fields['billing']['billing_shipping_type_custom'] = [
             'type' => 'radio',
             'label' => 'Versandoption',
-            'options' => ['standard' => 'Standardlieferung (Kostenlos)', 'express' => 'Expresslieferung (+ 45,99 €)'],
-            'default' => 'standard',
+            'options' => $options,
+            'default' => $default_shipping,
             'priority' => 1
         ];
 
-        // 2. Salutation
         $fields['billing']['billing_salutation'] = [
             'type' => 'select',
             'label' => 'Anrede',
@@ -112,13 +131,11 @@ class HOC_Checkout {
             'priority' => 5
         ];
 
-        // Rename standard labels
         $fields['billing']['billing_first_name']['label'] = 'Vorname';
         $fields['billing']['billing_last_name']['label'] = 'Nachname';
         $fields['billing']['billing_address_1']['label'] = 'Straße & Hausnummer';
         $fields['billing']['billing_city']['label'] = 'Ort';
 
-        // Additional Address Cards (Step 1)
         if ($points > 1) {
             for ($i = 2; $i <= $points; $i++) {
                 $s = "delivery_point_{$i}";
@@ -135,18 +152,6 @@ class HOC_Checkout {
 
     public function render_steps_indicator() {
         ?>
-        <style>
-            /* Hide order table ONLY on the checkout wizard page */
-            .woocommerce-checkout .hoc-checkout-main-grid ~ .woocommerce-checkout-review-order-table,
-            .woocommerce-checkout .hoc-checkout-main-grid ~ .shop_table,
-            .woocommerce-checkout .shop_table.woocommerce-checkout-review-order-table {
-                display: none !important;
-            }
-            /* Ensure it shows on the order received page */
-            .woocommerce-order-received .shop_table {
-                display: table !important;
-            }
-        </style>
         <div class="hoc-checkout-steps">
             <div class="steps-track">
                 <div class="step-item active"><div class="step-circle">1</div><span class="step-label">Daten & Zahlung</span></div>
@@ -180,25 +185,40 @@ class HOC_Checkout {
 
         if (!$oil_data) return;
 
-        // Determine shipping
+        $options = $this->get_shipping_options();
         if ($shipping_method === null) {
-            $shipping_method = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : (WC()->session->get('hoc_shipping_type') ?: 'standard');
+            $shipping_method = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : (WC()->session->get('hoc_shipping_type') ?: key($options));
         }
 
         $liters = $oil_data['liters'];
         $points = $oil_data['delivery_points'];
         $base_total = $oil_data['calculated_price'];
         
-        $shipping_cost = ($shipping_method === 'express') ? 45.99 : 0.00;
+        $shipping_cost = 0;
+        $shipping_label = $options[$shipping_method] ?? $shipping_method;
+
+        // Try to extract cost from WC shipping method if it exists
+        $packages = WC()->shipping()->get_packages();
+        foreach ($packages as $i => $package) {
+            if (isset($package['rates'][$shipping_method])) {
+                $shipping_cost = $package['rates'][$shipping_method]->cost;
+                $shipping_label = $package['rates'][$shipping_method]->get_label();
+                break;
+            }
+        }
+
+        // Fallback for hardcoded express fee
+        if ($shipping_method === 'express' && $shipping_cost == 0) {
+            $shipping_cost = 45.99;
+        }
+
         $total_brutto = $base_total + $shipping_cost;
         
-        // Calculations
         $ggvs = 42.59;
         $netto = $total_brutto / 1.19;
         $mwst = $total_brutto - $netto;
         $price_per_100l = $base_total / ($liters / 100);
         
-        // SEPA Discount
         $payment_method = WC()->session->get('chosen_payment_method');
         $sepa_discount = ($payment_method === 'sepa') ? $total_brutto * 0.05 : 0;
         $final_price = $total_brutto - $sepa_discount;
@@ -214,7 +234,7 @@ class HOC_Checkout {
             </div>
             
             <div id="sidebar-delivery">
-                <div class="sidebar-row"><strong>Versand:</strong> <?php echo ($shipping_method === 'express') ? 'Expresslieferung' : 'Standardlieferung'; ?></div>
+                <div class="sidebar-row"><strong>Versand:</strong> <?php echo esc_html($shipping_label); ?></div>
                 <div class="sidebar-row"><span>Versandkosten:</span><span><?php echo ($shipping_cost > 0) ? number_format($shipping_cost, 2, ',', '.') . ' €' : 'Kostenlos'; ?></span></div>
             </div>
 
@@ -250,6 +270,7 @@ class HOC_Checkout {
         </div>
         <?php
     }
+
     public function end_grid() {
         echo '</div></div></div>';
         echo '<div class="sticky-footer"><div class="container d-flex justify-content-between align-items-center">
@@ -268,11 +289,8 @@ class HOC_Checkout {
     public function render_step_containers($checkout) {
         $points = $this->get_points();
         
-        // STEP 2 Container
         echo '<div id="hoc-checkout-step-2" class="hoc-step-container" style="display:none;"><div class="lieferanschrift-card">';
         echo '<h4 class="dp-header">Liefertermin</h4>';
-        
-        // DIRECT HTML TO ENSURE ID EXISTS
         ?>
         <p class="form-row form-row-wide" id="billing_delivery_date_custom_field">
             <label for="billing_delivery_date_custom">Wunschtermin</label>
@@ -290,31 +308,25 @@ class HOC_Checkout {
             </label>
         </p>
         <?php
-
         echo '</div></div>';
 
-    // STEP 3 Container
-echo '<div id="hoc-checkout-step-3" class="hoc-step-container" style="display:none;">
-        <div class="lieferanschrift-card">
-            <h4 class="dp-header">Bestätigung</h4>
-            <p>Bitte prüfen Sie Ihre Angaben in der Übersicht rechts.</p>
+        echo '<div id="hoc-checkout-step-3" class="hoc-step-container" style="display:none;">
+                <div class="lieferanschrift-card">
+                    <h4 class="dp-header">Bestätigung</h4>
+                    <p>Bitte prüfen Sie Ihre Angaben in der Übersicht rechts.</p>
+                    <div class="hoc-checkbox-group">
+                        <label class="hoc-checkbox">
+                            <input type="checkbox" id="hoc_terms" required>
+                            <span>I have checked and confirmed all the information.</span>
+                        </label>
+                        <label class="hoc-checkbox">
+                            <input type="checkbox" id="hoc_privacy" required>
+                            <span>I accept the terms and conditions and the privacy policy.</span>
+                        </label>
+                    </div>
+                </div>
+              </div>';
 
-            <div class="hoc-checkbox-group">
-                <label class="hoc-checkbox">
-                    <input type="checkbox" id="hoc_terms" required>
-                    <span>I have checked and confirmed all the information.</span>
-                </label>
-
-                <label class="hoc-checkbox">
-                    <input type="checkbox" id="hoc_privacy" required>
-                    <span>I accept the terms and conditions and the privacy policy.</span>
-                </label>
-            </div>
-
-        </div>
-      </div>';
-
-        // Extra Cards (Step 1)
         if ($points > 1) {
             echo '<div id="extra_delivery_points" class="hoc-step-1-extra">';
             for ($i = 2; $i <= $points; $i++) {

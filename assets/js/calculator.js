@@ -36,7 +36,12 @@ jQuery(document).ready(function($) {
 
         if (postalCode && !/^\d{5}$/.test(postalCode)) errors.push('Bitte geben Sie eine gültige 5-stellige Postleitzahl ein.');
         const litersNum = parseFloat(liters);
-        if (liters && (isNaN(litersNum) || litersNum < 1500 || litersNum > 6000)) errors.push('Die Liefermenge muss zwischen 1500 und 6000 Litern liegen.');
+        const minLiters = parseInt(hoc_ajax.min_liters) || 1500;
+        const maxLiters = parseInt(hoc_ajax.max_liters) || 6000;
+        if (liters && (isNaN(litersNum) || litersNum < minLiters || litersNum > maxLiters)) {
+            errors.push('Die Liefermenge muss zwischen ' + minLiters + ' und ' + maxLiters + ' Litern liegen.');
+        }
+
         
         if (errors.length > 0) {
             $errorMsg.html(errors.join('<br>')).show();
@@ -108,7 +113,8 @@ jQuery(document).ready(function($) {
         const $select = $(selectors.billingDate);
         if (!$select.length) return;
 
-        const isExpress = $(selectors.billingShipping + ':checked').val() === 'express';
+        const shippingVal = $(selectors.billingShipping + ':checked').val() || '';
+        const isExpress = shippingVal.toLowerCase().includes('express');
         const startOffset = isExpress ? 7 : 14;
         
         const currentVal = $select.val();

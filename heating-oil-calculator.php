@@ -18,6 +18,7 @@ define('HOC_URL', plugin_dir_url(__FILE__));
 require_once HOC_PATH . 'includes/class-hoc-cart.php';
 require_once HOC_PATH . 'includes/class-hoc-checkout.php';
 require_once HOC_PATH . 'includes/class-hoc-ajax.php';
+require_once HOC_PATH . 'includes/class-hoc-settings.php';
 
 class Heating_Oil_Calculator {
     private static $instance = null;
@@ -36,6 +37,7 @@ class Heating_Oil_Calculator {
         new HOC_Cart();
         new HOC_Checkout();
         new HOC_AJAX();
+        new HOC_Settings();
 
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
     }
@@ -49,7 +51,9 @@ class Heating_Oil_Calculator {
             'nonce' => wp_create_nonce('hoc_calculator_nonce'),
             'checkout_url' => wc_get_checkout_url(),
             'home_url' => home_url('/', is_ssl() ? 'https' : 'http'),
-            'product_id' => is_product() ? get_the_ID() : 0
+            'product_id' => is_product() ? get_the_ID() : 0,
+            'min_liters' => get_option('hoc_min_liters', 1500),
+            'max_liters' => get_option('hoc_max_liters', 6000)
         ]);
     }
 }
