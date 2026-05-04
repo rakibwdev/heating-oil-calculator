@@ -19,6 +19,22 @@ class HOC_Checkout {
         // Display custom fields in order details
         add_filter('woocommerce_get_order_item_totals', [$this, 'add_order_item_totals'], 10, 3);
         add_action('woocommerce_admin_order_data_after_billing_address', [$this, 'display_order_data_in_admin'], 10, 1);
+
+        // SYNC SHIPPING FRAGMENTS
+        add_filter('woocommerce_update_order_review_fragments', [$this, 'add_shipping_fragments']);
+    }
+
+    public function add_shipping_fragments($fragments) {
+        ob_start();
+        ?>
+        <div id="hoc-shipping-selection">
+            <?php if ( WC()->cart->needs_shipping() && WC()->cart->show_shipping() ) : ?>
+                <?php wc_cart_totals_shipping_html(); ?>
+            <?php endif; ?>
+        </div>
+        <?php
+        $fragments['#hoc-shipping-selection'] = ob_get_clean();
+        return $fragments;
     }
 
     public function add_order_item_totals($total_rows, $order, $tax_display) {
@@ -218,9 +234,12 @@ class HOC_Checkout {
     }
 
     public function wrap_billing_start() {
-        
         $header = ($this->get_points() > 1) ? 'Lieferanschrift for Lieferstelle #1' : 'Lieferanschrift for alle Lieferstellen';
-        // Shipment
+        echo '<div class="lieferanschrift-card billing-card"><h4 class="dp-header">' . $header . '</h4>';
+    }
+    public function wrap_billing_end() { 
+        // Render Standard WC Shipping Methods here
+        echo '<div class="hoc-shipping-methods-container">';
         echo '<h4 class="dp-header">' . __('Versandoption', 'heating-oil-calculator') . '</h4>';
         ?>
         <div id="hoc-shipping-selection">
@@ -229,19 +248,10 @@ class HOC_Checkout {
             <?php endif; ?>
         </div>
         <?php
-        echo '<div class="lieferanschrift-card billing-card"><h4 class="dp-header">' . $header . '</h4>';
-
-    }
-
-    public function wrap_billing_end() { 
-        // Render Standard WC Shipping Methods here
-        echo '<div class="hoc-shipping-methods-container">';
         woocommerce_checkout_payment(); 
-
-        echo '</div>';
-        echo '</div>';
+        echo '</div>'; // hoc-shipping-methods-container
+        echo '</div>'; // billing-card
     }
-    
 
     public function render_step_containers($checkout) {
         $points = $this->get_points();

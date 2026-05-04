@@ -56,12 +56,12 @@ jQuery(document).ready(function($) {
 
     // --- NAVIGATION ---
     function goToStep(step) {
-        const step1Elements = '.billing-card, .hoc-step-1-extra,.hoc-shipping-selection, .woocommerce-shipping-fields, .hoc-shipping-methods-container';
+        const step1Elements = '.billing-card, .hoc-step-1-extra, .woocommerce-shipping-fields, .hoc-shipping-methods-container';
         $('.hoc-step-container').hide();
         $(step1Elements).hide();
         
         // Custom: Hide standard checkout tables until confirmation
-        $('.woocommerce-checkout-review-order-table,.hoc-shipping-selection, .shop_table').hide();
+        $('.woocommerce-checkout-review-order-table, .shop_table').hide();
 
         // Ensure parent container is visible but Step 1 fields are hidden in other steps
         $('.woocommerce-billing-fields').show();
@@ -78,7 +78,6 @@ jQuery(document).ready(function($) {
             $('.next-step-btn').text('Weiter zu: Bestellung prüfen →').attr('data-next', '3').show();
             $('.prev-step-btn').attr('data-prev', '1').show();
             $('.custom-submit-btn').hide();
-            $('.hoc-shipping-selection').hide();
             generateDeliveryDates();
         } 
         else if (step === 3) {
@@ -213,14 +212,22 @@ jQuery(document).ready(function($) {
     });
 
     // Listen to standard WC shipping changes
-    $(document).on('change', 'input[name^="shipping_method"]', function() {
-        // Trigger standard WC checkout update which will handle shipping costs
+    $(document).on('click', '#hoc-shipping-selection input[type="radio"]', function() {
+        // Trigger standard WC checkout update
         $(document.body).trigger('update_checkout');
     });
 
-    // Refresh our sidebar whenever WC updates checkout
+    // Refresh our sidebar and visibility whenever WC updates checkout
     $(document.body).on('updated_checkout', function() {
         refreshSidebar();
+        
+        // Reinforce visibility of Step 1 elements if we are still in Step 1
+        if (currentStep === 1) {
+            $('.hoc-shipping-methods-container').show();
+        } else {
+            $('.hoc-shipping-methods-container').hide();
+        }
+
         if (currentStep === 2) {
             generateDeliveryDates();
         }
