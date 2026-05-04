@@ -212,6 +212,12 @@ Hide duplicate fields in the main billing list
     opacity: 0;
     pointer-events: none;
 }
+.place-order{
+    display:none !important;
+}
+.e-checkout__column-end{
+    display: none;
+}
 /* .shop_table{
     display:none;
 } */

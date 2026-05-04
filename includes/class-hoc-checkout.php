@@ -19,61 +19,18 @@ class HOC_Checkout {
         // Display custom fields in order details
         add_filter('woocommerce_get_order_item_totals', [$this, 'add_order_item_totals'], 10, 3);
         add_action('woocommerce_admin_order_data_after_billing_address', [$this, 'display_order_data_in_admin'], 10, 1);
-
-        // PERSISTENT SHIPPING FEE
-        add_action('woocommerce_cart_calculate_fees', [$this, 'add_shipping_fee']);
-    }
-
-    private function get_shipping_options() {
-        $options = [];
-        $packages = WC()->shipping()->get_packages();
-        
-        foreach ($packages as $i => $package) {
-            $available_methods = $package['rates'];
-            foreach ($available_methods as $id => $method) {
-                $options[$id] = $method->get_label() . ' (' . wc_price($method->cost) . ')';
-            }
-        }
-
-        if (empty($options)) {
-            $options = ['standard' => 'Standardlieferung (Kostenlos)', 'express' => 'Expresslieferung (+ 45,99 €)'];
-        }
-
-        return $options;
-    }
-
-    public function add_shipping_fee($cart) {
-        if (is_admin() && !defined('DOING_AJAX')) return;
-        
-        $shipping_type = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : WC()->session->get('hoc_shipping_type');
-        
-        // If it's the old hardcoded express, keep the fee. 
-        // If it's a new WC method, the cost should be handled by WC shipping itself if we were using it properly.
-        // But since we are using a custom field, we might need to manually add the fee if it's not a real WC method.
-        if ($shipping_type === 'express') {
-            $cart->add_fee(__('Expresslieferung Aufschlag', 'heating-oil-calculator'), 45.99);
-        }
     }
 
     public function add_order_item_totals($total_rows, $order, $tax_display) {
         $date = get_post_meta($order->get_id(), '_billing_delivery_date_custom', true);
         $phone_coord = get_post_meta($order->get_id(), '_billing_delivery_phone_coord', true);
-        $shipping = get_post_meta($order->get_id(), '_billing_shipping_type_custom', true);
 
         $new_rows = [];
-        $options = $this->get_shipping_options();
 
         foreach ($total_rows as $key => $row) {
             $new_rows[$key] = $row;
             
             if ($key === 'shipping' || ($key === 'payment_method' && !isset($total_rows['shipping']))) {
-                if ($shipping) {
-                    $new_rows['hoc_shipping_type'] = [
-                        'label' => __('Versandoption', 'heating-oil-calculator') . ':',
-                        'value' => $options[$shipping] ?? $shipping
-                    ];
-                }
-                
                 if ($phone_coord) {
                     $new_rows['hoc_delivery_date'] = [
                         'label' => __('Liefertermin', 'heating-oil-calculator') . ':',
@@ -94,14 +51,9 @@ class HOC_Checkout {
     public function display_order_data_in_admin($order) {
         $date = get_post_meta($order->get_id(), '_billing_delivery_date_custom', true);
         $phone_coord = get_post_meta($order->get_id(), '_billing_delivery_phone_coord', true);
-        $shipping = get_post_meta($order->get_id(), '_billing_shipping_type_custom', true);
 
         echo '<div class="order_data_column" style="width:100%; clear:both; margin-top:20px;">';
         echo '<h4>' . __('Heizöl Details', 'heating-oil-calculator') . '</h4>';
-        if ($shipping) {
-            $options = $this->get_shipping_options();
-            echo '<p><strong>' . __('Versandoption', 'heating-oil-calculator') . ':</strong> ' . ($options[$shipping] ?? $shipping) . '</p>';
-        }
         if ($phone_coord) {
             echo '<p><strong>' . __('Telefonische Abstimmung', 'heating-oil-calculator') . ':</strong> Ja</p>';
         } elseif ($date) {
@@ -112,17 +64,8 @@ class HOC_Checkout {
 
     public function add_custom_fields($fields) {
         $points = $this->get_points();
-        $options = $this->get_shipping_options();
-        $default_shipping = key($options);
 
-        $fields['billing']['billing_shipping_type_custom'] = [
-            'type' => 'radio',
-            'label' => 'Versandoption',
-            'options' => $options,
-            'default' => $default_shipping,
-            'priority' => 1
-        ];
-
+        // 2. Salutation
         $fields['billing']['billing_salutation'] = [
             'type' => 'select',
             'label' => 'Anrede',
@@ -131,11 +74,13 @@ class HOC_Checkout {
             'priority' => 5
         ];
 
+        // Rename standard labels
         $fields['billing']['billing_first_name']['label'] = 'Vorname';
         $fields['billing']['billing_last_name']['label'] = 'Nachname';
         $fields['billing']['billing_address_1']['label'] = 'Straße & Hausnummer';
         $fields['billing']['billing_city']['label'] = 'Ort';
 
+        // Additional Address Cards (Step 1)
         if ($points > 1) {
             for ($i = 2; $i <= $points; $i++) {
                 $s = "delivery_point_{$i}";
@@ -170,7 +115,7 @@ class HOC_Checkout {
         $this->render_checkout_sidebar_summary();
     }
 
-    public function render_checkout_sidebar_summary($shipping_method = null) {
+    public function render_checkout_sidebar_summary() {
         $cart = WC()->cart->get_cart();
         $oil_data = null;
         $product_name = '';
@@ -185,34 +130,26 @@ class HOC_Checkout {
 
         if (!$oil_data) return;
 
-        $options = $this->get_shipping_options();
-        if ($shipping_method === null) {
-            $shipping_method = isset($_POST['billing_shipping_type_custom']) ? sanitize_text_field($_POST['billing_shipping_type_custom']) : (WC()->session->get('hoc_shipping_type') ?: key($options));
-        }
-
         $liters = $oil_data['liters'];
         $points = $oil_data['delivery_points'];
         $base_total = $oil_data['calculated_price'];
         
-        $shipping_cost = 0;
-        $shipping_label = $options[$shipping_method] ?? $shipping_method;
+        // Get REAL WC shipping data
+        $shipping_total = WC()->cart->get_shipping_total();
+        $shipping_methods = WC()->session->get('chosen_shipping_methods');
+        $shipping_label = __('Nicht ausgewählt', 'heating-oil-calculator');
 
-        // Try to extract cost from WC shipping method if it exists
-        $packages = WC()->shipping()->get_packages();
-        foreach ($packages as $i => $package) {
-            if (isset($package['rates'][$shipping_method])) {
-                $shipping_cost = $package['rates'][$shipping_method]->cost;
-                $shipping_label = $package['rates'][$shipping_method]->get_label();
-                break;
+        if (!empty($shipping_methods)) {
+            $packages = WC()->shipping()->get_packages();
+            foreach ($packages as $i => $package) {
+                if (isset($package['rates'][$shipping_methods[0]])) {
+                    $shipping_label = $package['rates'][$shipping_methods[0]]->get_label();
+                    break;
+                }
             }
         }
 
-        // Fallback for hardcoded express fee
-        if ($shipping_method === 'express' && $shipping_cost == 0) {
-            $shipping_cost = 45.99;
-        }
-
-        $total_brutto = $base_total + $shipping_cost;
+        $total_brutto = $base_total + $shipping_total;
         
         $ggvs = 42.59;
         $netto = $total_brutto / 1.19;
@@ -235,7 +172,7 @@ class HOC_Checkout {
             
             <div id="sidebar-delivery">
                 <div class="sidebar-row"><strong>Versand:</strong> <?php echo esc_html($shipping_label); ?></div>
-                <div class="sidebar-row"><span>Versandkosten:</span><span><?php echo ($shipping_cost > 0) ? number_format($shipping_cost, 2, ',', '.') . ' €' : 'Kostenlos'; ?></span></div>
+                <div class="sidebar-row"><span>Versandkosten:</span><span><?php echo ($shipping_total > 0) ? number_format($shipping_total, 2, ',', '.') . ' €' : 'Kostenlos'; ?></span></div>
             </div>
 
             <div id="sidebar-payment">
@@ -281,10 +218,30 @@ class HOC_Checkout {
     }
 
     public function wrap_billing_start() {
+        
         $header = ($this->get_points() > 1) ? 'Lieferanschrift for Lieferstelle #1' : 'Lieferanschrift for alle Lieferstellen';
+        // Shipment
+        echo '<h4 class="dp-header">' . __('Versandoption', 'heating-oil-calculator') . '</h4>';
+        ?>
+        <div id="hoc-shipping-selection">
+            <?php if ( WC()->cart->needs_shipping() && WC()->cart->show_shipping() ) : ?>
+                <?php wc_cart_totals_shipping_html(); ?>
+            <?php endif; ?>
+        </div>
+        <?php
         echo '<div class="lieferanschrift-card billing-card"><h4 class="dp-header">' . $header . '</h4>';
+
     }
-    public function wrap_billing_end() { echo '</div>'; }
+
+    public function wrap_billing_end() { 
+        // Render Standard WC Shipping Methods here
+        echo '<div class="hoc-shipping-methods-container">';
+        woocommerce_checkout_payment(); 
+
+        echo '</div>';
+        echo '</div>';
+    }
+    
 
     public function render_step_containers($checkout) {
         $points = $this->get_points();
@@ -342,7 +299,7 @@ class HOC_Checkout {
 
     public function save_meta($order_id) {
         foreach ($_POST as $k => $v) { 
-            if (strpos($k, 'dp_') === 0 || $k === 'billing_salutation' || $k === 'billing_delivery_date_custom' || $k === 'billing_delivery_phone_coord' || $k === 'billing_shipping_type_custom') {
+            if (strpos($k, 'dp_') === 0 || $k === 'billing_salutation' || $k === 'billing_delivery_date_custom' || $k === 'billing_delivery_phone_coord') {
                 update_post_meta($order_id, '_' . $k, sanitize_text_field($v)); 
             }
         }

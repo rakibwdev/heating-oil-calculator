@@ -16,15 +16,12 @@ class HOC_AJAX {
         }
 
         $checkout = new HOC_Checkout();
-        // Use a reflection or just access the private method if it was public? 
-        // Actually, get_shipping_options is private in my current implementation.
-        // I should probably make it public or have a way to get the default.
         
-        $shipping_method = isset($_POST['shipping_method']) ? sanitize_text_field($_POST['shipping_method']) : '';
-        WC()->session->set('hoc_shipping_type', $shipping_method);
-
+        // Shipping is now handled by standard WC, so we just render the summary 
+        // which pulls from WC()->cart and WC()->session.
+        
         ob_start();
-        $checkout->render_checkout_sidebar_summary($shipping_method ?: null);
+        $checkout->render_checkout_sidebar_summary();
         $html = ob_get_clean();
 
         wp_send_json_success(['html' => $html]);

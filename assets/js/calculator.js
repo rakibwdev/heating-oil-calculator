@@ -12,7 +12,7 @@ jQuery(document).ready(function($) {
         billingDateField: '#billing_delivery_date_custom_field',
         billingPhoneCoord: '#billing_delivery_phone_coord',
         billingPhoneCoordField: '#billing_delivery_phone_coord_field',
-        billingShipping: 'input[name="billing_shipping_type_custom"]',
+        billingShipping: 'input[name^="shipping_method"]',
         calcContainer: '.calc-container'
     };
 
@@ -56,12 +56,12 @@ jQuery(document).ready(function($) {
 
     // --- NAVIGATION ---
     function goToStep(step) {
-        const step1Elements = '.billing-card, .hoc-step-1-extra, .woocommerce-shipping-fields';
+        const step1Elements = '.billing-card, .hoc-step-1-extra,.hoc-shipping-selection, .woocommerce-shipping-fields, .hoc-shipping-methods-container';
         $('.hoc-step-container').hide();
         $(step1Elements).hide();
         
         // Custom: Hide standard checkout tables until confirmation
-        $('.woocommerce-checkout-review-order-table, .shop_table').hide();
+        $('.woocommerce-checkout-review-order-table,.hoc-shipping-selection, .shop_table').hide();
 
         // Ensure parent container is visible but Step 1 fields are hidden in other steps
         $('.woocommerce-billing-fields').show();
@@ -78,6 +78,7 @@ jQuery(document).ready(function($) {
             $('.next-step-btn').text('Weiter zu: Bestellung prüfen →').attr('data-next', '3').show();
             $('.prev-step-btn').attr('data-prev', '1').show();
             $('.custom-submit-btn').hide();
+            $('.hoc-shipping-selection').hide();
             generateDeliveryDates();
         } 
         else if (step === 3) {
@@ -166,6 +167,17 @@ jQuery(document).ready(function($) {
         });
     }
 
+    function refreshSidebar() {
+        $.post(hoc_ajax.ajax_url, {
+            action: 'update_checkout_sidebar',
+            nonce: hoc_ajax.nonce
+        }, function(res) {
+            if (res.success) {
+                $('#sidebar').replaceWith(res.data.html);
+            }
+        });
+    }
+
     // --- LISTENERS ---
     $(document).on('click', '.next-step-btn', function(e) { 
         e.preventDefault(); 
@@ -200,20 +212,15 @@ jQuery(document).ready(function($) {
         window.hocTimer = setTimeout(updateComparisonPrices, 300);
     });
 
-    $(document).on('change', selectors.billingShipping, function() {
-        const method = $(this).val();
-        $.post(hoc_ajax.ajax_url, {
-            action: 'update_checkout_sidebar',
-            nonce: hoc_ajax.nonce,
-            shipping_method: method
-        }, function(res) {
-            if (res.success) {
-                $('#sidebar').replaceWith(res.data.html);
-                // Trigger WooCommerce to update real totals
-                $(document.body).trigger('update_checkout');
-            }
-        });
-        
+    // Listen to standard WC shipping changes
+    $(document).on('change', 'input[name^="shipping_method"]', function() {
+        // Trigger standard WC checkout update which will handle shipping costs
+        $(document.body).trigger('update_checkout');
+    });
+
+    // Refresh our sidebar whenever WC updates checkout
+    $(document.body).on('updated_checkout', function() {
+        refreshSidebar();
         if (currentStep === 2) {
             generateDeliveryDates();
         }
